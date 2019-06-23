@@ -10,9 +10,12 @@ import psycopg2
 import json
 import urllib
 import time
+import MySQLdb
 
 def main():
-    conn = psql('psql')
+    conn = make_conn('credentials')
+    conn.set_character_set('utf8')
+
     opt = read_file('opt')
 
     cmc_key = opt[0]
@@ -37,7 +40,7 @@ def main():
 
         conn.commit()
 
-    if sys.argv[1] == 'biz':
+    if sys.argv[1] == 'biz-update':
         cur = conn.cursor()
 
         recent = get_recent_biz_post(cur)
@@ -46,7 +49,6 @@ def main():
         biz_posts(conn)
         biz_counts(conn, recent, cutoff)
 
-        # Delete posts older than 24 hours.
         cur.execute('DELETE FROM biz_posts WHERE timestamp <= %s', (cutoff,))
         conn.commit()
 
@@ -68,16 +70,21 @@ def get_recent_biz_post(cur):
 def biz_counts(conn, recent, cutoff):
     cur = conn.cursor()
 
-    cur.execute('SELECT coin_id, name, symbol FROM coins')
+    cur.execute('SELECT coin_id, name, symbol, rank FROM coins')
 
     for coin in cur.fetchall():
         coin_id = coin[0]
         name = coin[1]
         symbol = coin[2]
+        rank = coin[3]
 
         name_c = '% ' + name + ' %';
         name_l = '% ' + name;
         name_r = name + ' %';
+
+        '''name_cu = '% ' + name.lower() + ' %';
+        name_lu = '% ' + name.lower();
+        name_ru = name.lower() + ' %';'''
 
         symbol_c = '% ' + symbol +' %';
         symbol_l = '% ' + symbol;
@@ -86,9 +93,10 @@ def biz_counts(conn, recent, cutoff):
         q = 'SELECT COUNT(id) FROM biz_posts WHERE \
             (comment LIKE %s OR comment LIKE %s OR comment LIKE %s \
             OR comment LIKE %s OR comment LIKE %s OR comment LIKE %s) \
-            AND timestamp >= %s'
+            AND timestamp > %s'
 
-        vals = (name_c, name_l, name_r, symbol_c, symbol_l, symbol_r, recent)
+        vals = (name_c, name_l, name_r, symbol_c, symbol_l, symbol_r,
+            recent)
         cur.execute(q, vals)
 
         mention_count = cur.fetchone()[0]
@@ -98,25 +106,29 @@ def biz_counts(conn, recent, cutoff):
         cur.execute(q, vals)
 
         if cur.fetchone() == None:
-            q = 'INSERT INTO biz_counts (name, symbol, coin_id, \
-                mention_count) VALUES (%s, %s, %s, %s)'
+            q = 'INSERT INTO biz_counts (rank, name, symbol, coin_id, \
+                mention_count) VALUES (%s, %s, %s, %s, %s)'
 
-            vals = (name, symbol, coin_id, mention_count)
+            vals = (rank, name, symbol, coin_id, mention_count)
 
             print 'insert: ' + str(vals)
         else:
+            #
             # Select old mention count from table.
+            #
             q = 'SELECT mention_count FROM biz_counts WHERE coin_id = %s'
             args = (coin_id,)
             cur.execute(q, vals)
 
             old_count = cur.fetchone()[0]
 
+            #
             # Get mention count from posts older than 24 hours.
+            #
             q = 'SELECT COUNT(id) FROM biz_posts WHERE \
                 (comment LIKE %s OR comment LIKE %s OR comment LIKE %s \
                 OR comment LIKE %s OR comment LIKE %s OR comment LIKE %s) \
-                AND timestamp < %s'
+                AND timestamp <= %s'
 
             vals = (name_c, name_l, name_r, symbol_c, symbol_l, symbol_r,
                 cutoff)
@@ -125,13 +137,13 @@ def biz_counts(conn, recent, cutoff):
 
             older_24h = cur.fetchone()[0]
 
-            # Determine mentions over the last 24 hours.
-            new_count = old_count + mention_count - older_24h
-
-            q = 'UPDATE biz_counts SET mention_count = %s \
+            #
+            # Determine mention count for coin over the last 24 hours.
+            #
+            q = 'UPDATE biz_counts SET rank = %s, mention_count = %s \
                     WHERE coin_id = %s'
 
-            vals = (new_count, coin_id)
+            vals = (rank, old_count + mention_count - older_24h, coin_id)
 
             print 'update: ' + str(vals)
 
@@ -180,15 +192,15 @@ def biz_posts(conn):
     conn.commit()
 
 def insert_value(cur, key, value):
-    cur.execute('SELECT id FROM values WHERE input_key = %s', (key,))
+    cur.execute('SELECT id FROM key_values WHERE input_key = %s', (key,))
 
     if cur.fetchone() == None:
-        q = 'INSERT INTO values (input_key, input_value) VALUES (%s, %s)'
+        q = 'INSERT INTO key_values (input_key, input_value) VALUES (%s, %s)'
         vals = (key, value)
 
         print 'insert: ' + str(vals)
     else:
-        q = 'UPDATE values SET input_value = %s WHERE input_key = %s'
+        q = 'UPDATE key_values SET input_value = %s WHERE input_key = %s'
         vals = (value, key)
 
         print 'update: ' + str(vals)
@@ -372,14 +384,25 @@ def get_btc_eth(cmc_key):
 def read_file(file_name):
     return map(str.strip, open(file_name, 'r').readlines())
 
-def psql(cred):
-    creds = read_file(cred)
+def make_conn(cred_file):
+    creds = read_file(cred_file)
 
-    return psycopg2.connect(database = creds[0],
-                            user = creds[1],
-                            password = creds[2],
-                            host = creds[3],
-                            port = creds[4])
+    if creds[0] == 'mysql':
+        if len(creds) == 7:
+            return MySQLdb.connect(db = creds[1],
+                user = creds[2],
+                passwd = creds[3],
+                unix_socket = creds[6])
+        else:
+            return MySQLdb.connect(db = creds[1],
+                user = creds[2],
+                passwd = creds[3])
+    else:
+        return psycopg2.connect(database = creds[1],
+            user = creds[2],
+            password = creds[3],
+            host = creds[4],
+            port = creds[5])
 
 def read_json(page):
     return json.loads(urllib.urlopen(page).read())
@@ -392,6 +415,7 @@ def create_tables(conn):
             "ALTER TABLE biz_counts ADD COLUMN name TEXT",
             "ALTER TABLE biz_counts ADD COLUMN symbol TEXT",
             "ALTER TABLE biz_counts ADD COLUMN coin_id TEXT",
+            "ALTER TABLE biz_counts ADD COLUMN rank INT",
             "ALTER TABLE biz_counts ADD COLUMN mention_count INT",
 
             "CREATE TABLE biz_posts()",
