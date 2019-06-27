@@ -149,6 +149,8 @@ def biz_counts(conn, recent, cutoff):
 
         cur.execute(q, vals)
 
+    insert_value(cur, 'last_update_biz_counts', int(time.time()))
+
     conn.commit()
 
 def biz_posts(conn):
@@ -340,6 +342,8 @@ def get_coins(conn, cmc_key, cmc_limit):
         cur.execute(q, vals)
 
     print '\ndeleted: ' + str(to_delete)
+
+    insert_value(cur, 'last_update_coins', int(time.time()))
 
     conn.commit()
 
