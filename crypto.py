@@ -76,14 +76,13 @@ def heat_map(conn):
             price = j['Data'][i]['high']
 
             diff = get_change(price, prev)
-            diff = str(round(diff, 2))
 
             if price < prev:
-                diff = '-' + str(diff) + '%'
-            else:
-                diff = '+' + str(diff) + '%'
+                diff = diff * -1
 
             prev = price
+
+            diff = str(round(diff, 2))
 
             q = 'INSERT INTO heat_map (rank, symbol, time, instance, \
                 difference) VALUES (%s, %s, %s, %s, %s)'
