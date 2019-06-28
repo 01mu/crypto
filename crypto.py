@@ -21,6 +21,9 @@ def main():
     cmc_key = opt[0]
     cmc_limit = opt[1]
 
+    if sys.argv[1] == 'heat-map':
+        heat_map(conn)
+
     if sys.argv[1] == 'tables':
         create_tables(conn)
 
@@ -55,9 +58,57 @@ def main():
     if sys.argv[1] == 'test':
         print int(time.time())
 
+def heat_map(conn):
+    cur = conn.cursor()
+
+    cur.execute('SELECT symbol, rank FROM coins WHERE rank <= 100')
+
+    for coin in cur.fetchall():
+        url = ('https://min-api.cryptocompare.com/data/histoday' +
+            '?fsym=' + coin[0] + '&tsym=USD&limit=20&aggregate=1&e=CCCAGG')
+
+        j = read_json(url)
+
+        prev = 0
+
+        for i in range(len(j['Data'])):
+            timestamp = j['Data'][i]['time']
+            price = j['Data'][i]['high']
+
+            diff = get_change(price, prev)
+
+            if price < prev:
+                diff = diff * -1
+
+            prev = price
+
+            diff = str(round(diff, 2))
+
+            q = 'INSERT INTO heat_map (rank, symbol, time, instance, \
+                difference) VALUES (%s, %s, %s, %s, %s)'
+
+            vals = (coin[1], coin[0], timestamp, 1, diff)
+            cur.execute(q, vals)
+
+            print 'insert: ' + str(vals)
+
+    cur.execute('DELETE FROM heat_map WHERE instance = 0')
+    cur.execute('UPDATE heat_map SET instance = 0 WHERE instance = 1')
+
+    insert_value(cur, 'last_update_heat_map', int(time.time()))
+
+    conn.commit()
+
+def get_change(current, previous):
+    if current == previous:
+        return 100.0
+    try:
+        return (abs(current - previous) / previous) * 100.0
+    except ZeroDivisionError:
+        return 0
+
 def get_recent_biz_post(cur):
     q = 'SELECT timestamp FROM biz_posts ORDER BY timestamp DESC LIMIT 1'
-
     cur.execute(q)
 
     try:
@@ -97,6 +148,7 @@ def biz_counts(conn, recent, cutoff):
 
         vals = (name_c, name_l, name_r, symbol_c, symbol_l, symbol_r,
             recent)
+
         cur.execute(q, vals)
 
         mention_count = cur.fetchone()[0]
