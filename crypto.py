@@ -225,16 +225,17 @@ def biz_posts(conn):
                     continue
 
                 timestamp = post['time']
+                post_id = post['no']
 
-                vals = (comment, timestamp)
+                vals = (post_id, comment, timestamp)
 
-                q = 'SELECT id FROM biz_posts WHERE timestamp = %s'
+                q = 'SELECT id FROM biz_posts WHERE post_id = %s'
 
-                cur.execute(q, (timestamp,))
+                cur.execute(q, (post_id,))
 
                 if cur.fetchone() == None:
-                    q = 'INSERT INTO biz_posts (comment, timestamp) \
-                        VALUES (%s, %s)'
+                    q = 'INSERT INTO biz_posts (post_id, comment, timestamp) \
+                        VALUES (%s, %s, %s)'
 
                     cur.execute(q, vals)
 
