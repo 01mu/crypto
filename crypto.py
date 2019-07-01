@@ -117,7 +117,7 @@ def get_change(current, previous):
     if current == previous:
         return 0
     try:
-        return (abs(current - previous) / previous) * 100.0
+        return (abs(current - previous) / previous) * 100
     except ZeroDivisionError:
         return 0
 
