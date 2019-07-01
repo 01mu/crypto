@@ -21,6 +21,9 @@ def main():
     cmc_key = opt[0]
     cmc_limit = opt[1]
 
+    if sys.argv[1] == 'reddit':
+        reddit(conn)
+
     if sys.argv[1] == 'heat-map':
         heat_map(conn)
 
@@ -57,6 +60,17 @@ def main():
 
     if sys.argv[1] == 'test':
         print int(time.time())
+
+def reddit(conn):
+    url = ('https://www.reddit.com/r/CryptoCurrency/search.json?' +
+        'q=subreddit%3Acryptocurrency+%22daily+discussion%22&' +
+        'sort=new&t=all')
+
+    j = read_json(url)
+
+    for i in range(len(j['data']['children'])):
+        print j['data']['children'][i]['data']['title']
+
 
 def heat_map(conn):
     cur = conn.cursor()
@@ -101,7 +115,7 @@ def heat_map(conn):
 
 def get_change(current, previous):
     if current == previous:
-        return 100.0
+        return 0
     try:
         return (abs(current - previous) / previous) * 100.0
     except ZeroDivisionError:
