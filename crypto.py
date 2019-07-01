@@ -122,7 +122,7 @@ def get_change(current, previous):
         return 0
 
 def get_recent_biz_post(cur):
-    q = 'SELECT timestamp FROM biz_posts ORDER BY timestamp DESC LIMIT 1'
+    q = 'SELECT post_id FROM biz_posts ORDER BY timestamp DESC LIMIT 1'
     cur.execute(q)
 
     try:
