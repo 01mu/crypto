@@ -158,7 +158,7 @@ def biz_counts(conn, recent, cutoff):
         q = 'SELECT COUNT(id) FROM biz_posts WHERE \
             (comment LIKE %s OR comment LIKE %s OR comment LIKE %s \
             OR comment LIKE %s OR comment LIKE %s OR comment LIKE %s) \
-            AND timestamp > %s'
+            AND post_id > %s'
 
         vals = (name_c, name_l, name_r, symbol_c, symbol_l, symbol_r,
             recent)
