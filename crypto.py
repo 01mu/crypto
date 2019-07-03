@@ -50,12 +50,12 @@ def main():
         cur = conn.cursor()
 
         recent = get_recent_biz_post(cur)
-        cutoff = int(time.time()) - 86400
+        cutoff = get_cutoff(cur)
 
         biz_posts(conn)
         biz_counts(conn, recent, cutoff)
 
-        cur.execute('DELETE FROM biz_posts WHERE timestamp <= %s', (cutoff,))
+        cur.execute('DELETE FROM biz_posts WHERE post_id <= %s', (cutoff,))
         conn.commit()
 
     if sys.argv[1] == 'test':
@@ -120,6 +120,22 @@ def get_change(current, previous):
         return (abs(current - previous) / previous) * 100
     except ZeroDivisionError:
         return 0
+
+def get_cutoff(cur):
+    cutoff = int(time.time()) - 86400
+
+    q = 'SELECT post_id FROM biz_posts WHERE timestamp <= %s \
+        ORDER BY timestamp DESC LIMIT 1'
+
+    cur.execute(q, (cutoff,))
+
+    try:
+        cutoff = cur.fetchone()[0]
+    except:
+        cutoff = 0
+
+    return cutoff
+
 
 def get_recent_biz_post(cur):
     q = 'SELECT post_id FROM biz_posts ORDER BY timestamp DESC LIMIT 1'
@@ -194,7 +210,7 @@ def biz_counts(conn, recent, cutoff):
             q = 'SELECT COUNT(id) FROM biz_posts WHERE \
                 (comment LIKE %s OR comment LIKE %s OR comment LIKE %s \
                 OR comment LIKE %s OR comment LIKE %s OR comment LIKE %s) \
-                AND timestamp <= %s'
+                AND post_id <= %s'
 
             vals = (name_c, name_l, name_r, symbol_c, symbol_l, symbol_r,
                 cutoff)
