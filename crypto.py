@@ -366,11 +366,11 @@ def get_coins(conn, cmc_key, cmc_limit):
         symbol = coin['symbol']
         slug = coin['slug']
 
-        price_btc = coin['quote']['BTC']['price']
-        price_usd = price_btc * btc_price
-        price_eth = price_btc * d
+        price_btc = float(coin['quote']['BTC']['price'])
+        price_usd = float(price_btc * btc_price)
+        price_eth = float(price_btc * d)
 
-        total_supply = coin['total_supply']
+        total_supply = float(coin['total_supply'])
         circulating_supply = coin['circulating_supply']
         max_supply = coin['max_supply']
 
@@ -378,11 +378,17 @@ def get_coins(conn, cmc_key, cmc_limit):
         change_24h = coin['quote']['BTC']['percent_change_24h']
         change_7d = coin['quote']['BTC']['percent_change_7d']
 
-        market_cap = coin['quote']['BTC']['market_cap'] * btc_price;
-        market_cap_percent = market_cap / total_market_cap * 100
+        try:
+            market_cap = coin['quote']['BTC']['market_cap'] * btc_price
+            market_cap_percent = market_cap / total_market_cap * 100
+        except:
+            market_cap = market_cap_percent = 0
 
-        volume_24h = coin['quote']['BTC']['volume_24h'] * btc_price
-        volume_24h_percent = volume_24h / total_volume_24h * 100
+        try:
+            volume_24h = coin['quote']['BTC']['volume_24h'] * btc_price
+            volume_24h_percent = volume_24h / total_volume_24h * 100
+        except:
+            volume_24h = volume_24h_percent = 0
 
         cur.execute("SELECT id FROM coins WHERE coin_id = '%s'", (coin_id,))
 
@@ -429,6 +435,8 @@ def get_coins(conn, cmc_key, cmc_limit):
     insert_value(cur, 'last_update_coins', int(time.time()))
 
     conn.commit()
+
+# https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest?sort=market_cap&start=1&limit=10&cryptocurrency_type=all&convert=BTC&CMC_PRO_API_KEY=
 
 def get_cmc_coins(cmc_key, limit):
     url = ('https://pro-api.coinmarketcap.com/' +
