@@ -55,7 +55,7 @@ def main():
         biz_posts(conn)
         biz_counts(conn, recent, cutoff)
 
-        cur.execute('DELETE FROM biz_posts WHERE post_id <= %s', (cutoff,))
+        cur.execute('DELETE FROM biz_posts WHERE added <= %s', (cutoff,))
         conn.commit()
 
     if sys.argv[1] == 'test':
@@ -124,8 +124,8 @@ def get_change(current, previous):
 def get_cutoff(cur):
     cutoff = int(time.time()) - 86400
 
-    q = 'SELECT post_id FROM biz_posts WHERE timestamp <= %s \
-        ORDER BY timestamp DESC LIMIT 1'
+    q = 'SELECT post_id FROM biz_posts WHERE added <= %s \
+        ORDER BY added DESC LIMIT 1'
 
     cur.execute(q, (cutoff,))
 
@@ -138,7 +138,7 @@ def get_cutoff(cur):
 
 
 def get_recent_biz_post(cur):
-    q = 'SELECT post_id FROM biz_posts ORDER BY timestamp DESC LIMIT 1'
+    q = 'SELECT post_id FROM biz_posts ORDER BY added DESC LIMIT 1'
     cur.execute(q)
 
     try:
@@ -174,7 +174,7 @@ def biz_counts(conn, recent, cutoff):
         q = 'SELECT COUNT(id) FROM biz_posts WHERE \
             (comment LIKE %s OR comment LIKE %s OR comment LIKE %s \
             OR comment LIKE %s OR comment LIKE %s OR comment LIKE %s) \
-            AND post_id > %s'
+            AND added > %s'
 
         vals = (name_c, name_l, name_r, symbol_c, symbol_l, symbol_r,
             recent)
@@ -257,15 +257,15 @@ def biz_posts(conn):
                 timestamp = post['time']
                 post_id = post['no']
 
-                vals = (post_id, comment, timestamp)
+                vals = (post_id, comment, timestamp, int(time.time()))
 
                 q = 'SELECT id FROM biz_posts WHERE post_id = %s'
 
                 cur.execute(q, (post_id,))
 
                 if cur.fetchone() == None:
-                    q = 'INSERT INTO biz_posts (post_id, comment, timestamp) \
-                        VALUES (%s, %s, %s)'
+                    q = 'INSERT INTO biz_posts (post_id, comment, timestamp, \
+                        added) VALUES (%s, %s, %s, %s)'
 
                     cur.execute(q, vals)
 
@@ -436,8 +436,6 @@ def get_coins(conn, cmc_key, cmc_limit):
 
     conn.commit()
 
-# https://pro-api.coinmarketcap.com/v1/cryptocurrency/listings/latest?sort=market_cap&start=1&limit=10&cryptocurrency_type=all&convert=BTC&CMC_PRO_API_KEY=
-
 def get_cmc_coins(cmc_key, limit):
     url = ('https://pro-api.coinmarketcap.com/' +
         'v1/cryptocurrency/listings/latest?sort=market_cap' +
@@ -517,6 +515,7 @@ def create_tables(conn):
             "ALTER TABLE biz_posts ADD COLUMN id SERIAL PRIMARY KEY",
             "ALTER TABLE biz_posts ADD COLUMN comment TEXT",
             "ALTER TABLE biz_posts ADD COLUMN timestamp INT",
+            "ALTER TABLE biz_posts ADD COLUMN added INT",
 
             "CREATE TABLE values()",
             "ALTER TABLE values ADD COLUMN id SERIAL PRIMARY KEY",
