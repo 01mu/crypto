@@ -46,6 +46,9 @@ def main():
 
         conn.commit()
 
+    if sys.argv[1] == 'biz-24h':
+        biz_24h(conn)
+
     if sys.argv[1] == 'biz-update':
         cur = conn.cursor()
 
@@ -60,6 +63,21 @@ def main():
 
     if sys.argv[1] == 'test':
         print int(time.time())
+
+def biz_24h(conn):
+    cur = conn.cursor()
+
+    cur.execute('SELECT coin_id, mention_count FROM biz_counts')
+
+    for coin in cur.fetchall():
+        q = 'UPDATE biz_counts SET count_24h = %s WHERE coin_id = %s'
+        vals = (coin[1], coin[0])
+
+        cur.execute(q, vals)
+
+        print 'update: ' + str(vals)
+
+    conn.commit()
 
 def reddit(conn):
     url = ('https://www.reddit.com/r/CryptoCurrency/search.json?' +
@@ -189,20 +207,26 @@ def biz_counts(conn, recent, cutoff):
 
         if cur.fetchone() == None:
             q = 'INSERT INTO biz_counts (rank, name, symbol, coin_id, \
-                mention_count) VALUES (%s, %s, %s, %s, %s)'
+                mention_count, count_24h, change_24h) \
+                VALUES (%s, %s, %s, %s, %s, %s, %s)'
 
-            vals = (rank, name, symbol, coin_id, mention_count)
+            vals = (rank, name, symbol, coin_id, mention_count, 0, 0)
 
             print 'insert: ' + str(vals)
         else:
             #
-            # Select old mention count from table.
+            # Select old mention count and 24h count from table.
             #
-            q = 'SELECT mention_count FROM biz_counts WHERE coin_id = %s'
-            args = (coin_id,)
-            cur.execute(q, vals)
+            q = 'SELECT mention_count, count_24h FROM biz_counts \
+                WHERE coin_id = %s'
 
-            old_count = cur.fetchone()[0]
+            args = (coin_id,)
+            cur.execute(q, args)
+
+            res = cur.fetchall()[0]
+
+            old_count = res[0]
+            count_24h = res[1]
 
             #
             # Get mention count from posts older than 24 hours.
@@ -220,12 +244,20 @@ def biz_counts(conn, recent, cutoff):
             older_24h = cur.fetchone()[0]
 
             #
-            # Determine mention count for coin over the last 24 hours.
+            # Determine mention count for coin over the last 24 hours and
+            # the 24 hour change.
             #
-            q = 'UPDATE biz_counts SET rank = %s, mention_count = %s \
-                    WHERE coin_id = %s'
+            q = 'UPDATE biz_counts SET rank = %s, mention_count = %s, \
+                    change_24h = %s WHERE coin_id = %s'
 
-            vals = (rank, old_count + mention_count - older_24h, coin_id)
+            new_count = old_count + mention_count - older_24h
+
+            change_24h = abs(count_24h - new_count)
+
+            if new_count < count_24h:
+                change_24h = change_24h * -1
+
+            vals = (rank, new_count, change_24h, coin_id)
 
             print 'update: ' + str(vals)
 
@@ -510,6 +542,8 @@ def create_tables(conn):
             "ALTER TABLE biz_counts ADD COLUMN coin_id TEXT",
             "ALTER TABLE biz_counts ADD COLUMN rank INT",
             "ALTER TABLE biz_counts ADD COLUMN mention_count INT",
+            "ALTER TABLE biz_counts ADD COLUMN count_24h INT",
+            "ALTER TABLE biz_counts ADD COLUMN change_24h INT",
 
             "CREATE TABLE biz_posts()",
             "ALTER TABLE biz_posts ADD COLUMN id SERIAL PRIMARY KEY",
