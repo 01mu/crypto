@@ -77,6 +77,8 @@ def biz_24h(conn):
 
         print 'update: ' + str(vals)
 
+    insert_value(cur, 'last_update_biz_24h', int(time.time()))
+
     conn.commit()
 
 def reddit(conn):
