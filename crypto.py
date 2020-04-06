@@ -252,14 +252,14 @@ def biz_counts(conn, recent, cutoff):
             q = 'UPDATE biz_counts SET rank = %s, mention_count = %s, \
                     change_24h = %s WHERE coin_id = %s'
 
-            new_count = old_count + mention_count - older_24h
+            #new_count = old_count + mention_count - older_24h
 
-            change_24h = abs(count_24h - new_count)
+            #change_24h = abs(count_24h - new_count)
 
-            if new_count < count_24h:
-                change_24h = change_24h * -1
+            #if new_count < count_24h:
+            #    change_24h = change_24h * -1
 
-            vals = (rank, new_count, change_24h, coin_id)
+            vals = (rank, new_count, 0, coin_id)
 
             print 'update: ' + str(vals)
 
