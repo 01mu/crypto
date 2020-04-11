@@ -46,9 +46,6 @@ def main():
 
         conn.commit()
 
-    if sys.argv[1] == 'biz-24h':
-        biz_24h(conn)
-
     if sys.argv[1] == 'biz-update':
         cur = conn.cursor()
 
@@ -63,23 +60,6 @@ def main():
 
     if sys.argv[1] == 'test':
         print int(time.time())
-
-def biz_24h(conn):
-    cur = conn.cursor()
-
-    cur.execute('SELECT coin_id, mention_count FROM biz_counts')
-
-    for coin in cur.fetchall():
-        q = 'UPDATE biz_counts SET count_24h = %s WHERE coin_id = %s'
-        vals = (coin[1], coin[0])
-
-        cur.execute(q, vals)
-
-        print 'update: ' + str(vals)
-
-    insert_value(cur, 'last_update_biz_24h', int(time.time()))
-
-    conn.commit()
 
 def reddit(conn):
     url = ('https://www.reddit.com/r/CryptoCurrency/search.json?' +
@@ -209,26 +189,20 @@ def biz_counts(conn, recent, cutoff):
 
         if cur.fetchone() == None:
             q = 'INSERT INTO biz_counts (rank, name, symbol, coin_id, \
-                mention_count, count_24h, change_24h) \
-                VALUES (%s, %s, %s, %s, %s, %s, %s)'
+                mention_count) VALUES (%s, %s, %s, %s, %s)'
 
-            vals = (rank, name, symbol, coin_id, mention_count, 0, 0)
+            vals = (rank, name, symbol, coin_id, mention_count)
 
             print 'insert: ' + str(vals)
         else:
             #
-            # Select old mention count and 24h count from table.
+            # Select old mention count from table.
             #
-            q = 'SELECT mention_count, count_24h FROM biz_counts \
-                WHERE coin_id = %s'
-
+            q = 'SELECT mention_count FROM biz_counts WHERE coin_id = %s'
             args = (coin_id,)
-            cur.execute(q, args)
+            cur.execute(q, vals)
 
-            res = cur.fetchall()[0]
-
-            old_count = res[0]
-            count_24h = res[1]
+            old_count = cur.fetchone()[0]
 
             #
             # Get mention count from posts older than 24 hours.
@@ -246,20 +220,12 @@ def biz_counts(conn, recent, cutoff):
             older_24h = cur.fetchone()[0]
 
             #
-            # Determine mention count for coin over the last 24 hours and
-            # the 24 hour change.
+            # Determine mention count for coin over the last 24 hours.
             #
-            q = 'UPDATE biz_counts SET rank = %s, mention_count = %s, \
-                    change_24h = %s WHERE coin_id = %s'
+            q = 'UPDATE biz_counts SET rank = %s, mention_count = %s \
+                    WHERE coin_id = %s'
 
-            new_count = old_count + mention_count - older_24h
-
-            #change_24h = abs(count_24h - new_count)
-
-            #if new_count < count_24h:
-            #    change_24h = change_24h * -1
-
-            vals = (rank, new_count, 0, coin_id)
+            vals = (rank, old_count + mention_count - older_24h, coin_id)
 
             print 'update: ' + str(vals)
 
@@ -537,47 +503,22 @@ def read_json(page):
 def create_tables(conn):
     cur = conn.cursor()
 
-    cmds = ["CREATE TABLE biz_counts()",
-            "ALTER TABLE biz_counts ADD COLUMN id SERIAL PRIMARY KEY",
-            "ALTER TABLE biz_counts ADD COLUMN name TEXT",
-            "ALTER TABLE biz_counts ADD COLUMN symbol TEXT",
-            "ALTER TABLE biz_counts ADD COLUMN coin_id TEXT",
-            "ALTER TABLE biz_counts ADD COLUMN rank INT",
-            "ALTER TABLE biz_counts ADD COLUMN mention_count INT",
-            "ALTER TABLE biz_counts ADD COLUMN count_24h INT",
-            "ALTER TABLE biz_counts ADD COLUMN change_24h INT",
+    cmds = ["CREATE TABLE biz_counts(id SERIAL PRIMARY KEY, name TEXT, \
+                symbol TEXT, coin_id TEXT, rank INT, mention_count INT)",
 
-            "CREATE TABLE biz_posts()",
-            "ALTER TABLE biz_posts ADD COLUMN id SERIAL PRIMARY KEY",
-            "ALTER TABLE biz_posts ADD COLUMN comment TEXT",
-            "ALTER TABLE biz_posts ADD COLUMN timestamp INT",
-            "ALTER TABLE biz_posts ADD COLUMN added INT",
+            "CREATE TABLE biz_posts(id SERIAL PRIMARY KEY, comment TEXT, \
+                timestamp INT, added INT)",
 
-            "CREATE TABLE values()",
-            "ALTER TABLE values ADD COLUMN id SERIAL PRIMARY KEY",
-            "ALTER TABLE values ADD COLUMN input_key TEXT",
-            "ALTER TABLE values ADD COLUMN input_value TEXT",
+            "CREATE TABLE key_values(id SERIAL PRIMARY KEY, input_key TEXT, \
+                input_value TEXT)",
 
-            "CREATE TABLE coins()",
-            "ALTER TABLE coins ADD COLUMN id SERIAL PRIMARY KEY",
-            "ALTER TABLE coins ADD COLUMN name TEXT",
-            "ALTER TABLE coins ADD COLUMN symbol TEXT",
-            "ALTER TABLE coins ADD COLUMN coin_id TEXT",
-            "ALTER TABLE coins ADD COLUMN slug TEXT",
-            "ALTER TABLE coins ADD COLUMN rank INT",
-            "ALTER TABLE coins ADD COLUMN price_btc DECIMAL",
-            "ALTER TABLE coins ADD COLUMN price_usd DECIMAL",
-            "ALTER TABLE coins ADD COLUMN price_eth DECIMAL",
-            "ALTER TABLE coins ADD COLUMN total_supply DECIMAL",
-            "ALTER TABLE coins ADD COLUMN circulating_supply DECIMAL",
-            "ALTER TABLE coins ADD COLUMN max_supply DECIMAL",
-            "ALTER TABLE coins ADD COLUMN change_1h DECIMAL",
-            "ALTER TABLE coins ADD COLUMN change_24h DECIMAL",
-            "ALTER TABLE coins ADD COLUMN change_7d DECIMAL",
-            "ALTER TABLE coins ADD COLUMN market_cap DECIMAL",
-            "ALTER TABLE coins ADD COLUMN market_cap_percent DECIMAL",
-            "ALTER TABLE coins ADD COLUMN volume_24h DECIMAL",
-            "ALTER TABLE coins ADD COLUMN volume_24h_percent DECIMAL",]
+            "CREATE TABLE coins(id SERIAL PRIMARY KEY, name TEXT, symbol TEXT, \
+                coin_id TEXT, slug TEXT, rank INT, price_btc DECIMAL, \
+                price_usd DECIMAL, price_eth DECIMAL, total_supply DECIMAL, \
+                circulating_supply DECIMAL, max_supply DECIMAL, \
+                change_1h DECIMAL, change_24h DECIMAL, change_7d DECIMAL, \
+                market_cap DECIMAL, market_cap_percent DECIMAL, \
+                volume_24h DECIMAL, volume_24h_percent DECIMAL)"]
 
     for cmd in cmds:
         try:
