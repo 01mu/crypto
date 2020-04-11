@@ -516,12 +516,12 @@ def create_tables(conn):
                 symbol TEXT, time INT, instance INT, difference TEXT)",
 
             "CREATE TABLE coins(id SERIAL PRIMARY KEY, name TEXT, symbol TEXT, \
-                coin_id TEXT, slug TEXT, rank INT, price_btc DECIMAL, \
-                price_usd DECIMAL, price_eth DECIMAL, total_supply FLOAT, \
+                coin_id TEXT, slug TEXT, rank INT, price_btc FLOAT, \
+                price_usd FLOAT, price_eth FLOAT, total_supply FLOAT, \
                 circulating_supply FLOAT, max_supply FLOAT, \
-                change_1h DECIMAL, change_24h DECIMAL, change_7d DECIMAL, \
-                market_cap FLOAT, market_cap_percent DECIMAL, \
-                volume_24h FLOAT, volume_24h_percent DECIMAL)"]
+                change_1h FLOAT, change_24h FLOAT, change_7d FLOAT, \
+                market_cap FLOAT, market_cap_percent FLOAT, \
+                volume_24h FLOAT, volume_24h_percent FLOAT)"]
 
     for cmd in cmds:
         try:
