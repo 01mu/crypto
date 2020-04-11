@@ -512,13 +512,16 @@ def create_tables(conn):
             "CREATE TABLE key_values(id SERIAL PRIMARY KEY, input_key TEXT, \
                 input_value TEXT)",
 
+            "CREATE TABLE heat_map(id SERIAL PRIMARY KEY, rank INT, \
+                symbol TEXT, time INT, instance INT, difference DECIMAL)",
+
             "CREATE TABLE coins(id SERIAL PRIMARY KEY, name TEXT, symbol TEXT, \
                 coin_id TEXT, slug TEXT, rank INT, price_btc DECIMAL, \
-                price_usd DECIMAL, price_eth DECIMAL, total_supply DECIMAL, \
-                circulating_supply DECIMAL, max_supply DECIMAL, \
+                price_usd DECIMAL, price_eth DECIMAL, total_supply FLOAT, \
+                circulating_supply FLOAT, max_supply FLOAT, \
                 change_1h DECIMAL, change_24h DECIMAL, change_7d DECIMAL, \
-                market_cap DECIMAL, market_cap_percent DECIMAL, \
-                volume_24h DECIMAL, volume_24h_percent DECIMAL)"]
+                market_cap FLOAT, market_cap_percent DECIMAL, \
+                volume_24h FLOAT, volume_24h_percent DECIMAL)"]
 
     for cmd in cmds:
         try:
