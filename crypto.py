@@ -507,7 +507,7 @@ def create_tables(conn):
                 symbol TEXT, coin_id TEXT, rank INT, mention_count INT)",
 
             "CREATE TABLE biz_posts(id SERIAL PRIMARY KEY, comment TEXT, \
-                timestamp INT, added INT)",
+                timestamp INT, added INT, post_id INT)",
 
             "CREATE TABLE key_values(id SERIAL PRIMARY KEY, input_key TEXT, \
                 input_value TEXT)",
