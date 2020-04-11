@@ -513,7 +513,7 @@ def create_tables(conn):
                 input_value TEXT)",
 
             "CREATE TABLE heat_map(id SERIAL PRIMARY KEY, rank INT, \
-                symbol TEXT, time INT, instance INT, difference FLOAT)",
+                symbol TEXT, time INT, instance INT, difference TEXT)",
 
             "CREATE TABLE coins(id SERIAL PRIMARY KEY, name TEXT, symbol TEXT, \
                 coin_id TEXT, slug TEXT, rank INT, price_btc DECIMAL, \
