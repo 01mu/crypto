@@ -163,10 +163,6 @@ def biz_counts(conn, recent, cutoff):
         name_l = '% ' + name;
         name_r = name + ' %';
 
-        '''name_cu = '% ' + name.lower() + ' %';
-        name_lu = '% ' + name.lower();
-        name_ru = name.lower() + ' %';'''
-
         symbol_c = '% ' + symbol +' %';
         symbol_l = '% ' + symbol;
         symbol_r = symbol + ' %';
@@ -174,7 +170,7 @@ def biz_counts(conn, recent, cutoff):
         q = 'SELECT COUNT(id) FROM biz_posts WHERE \
             (comment LIKE %s OR comment LIKE %s OR comment LIKE %s \
             OR comment LIKE %s OR comment LIKE %s OR comment LIKE %s) \
-            AND added > %s'
+            AND post_id > %s'
 
         vals = (name_c, name_l, name_r, symbol_c, symbol_l, symbol_r,
             recent)
@@ -210,7 +206,7 @@ def biz_counts(conn, recent, cutoff):
             q = 'SELECT COUNT(id) FROM biz_posts WHERE \
                 (comment LIKE %s OR comment LIKE %s OR comment LIKE %s \
                 OR comment LIKE %s OR comment LIKE %s OR comment LIKE %s) \
-                AND post_id <= %s'
+                AND added <= %s'
 
             vals = (name_c, name_l, name_r, symbol_c, symbol_l, symbol_r,
                 cutoff)
@@ -513,7 +509,7 @@ def create_tables(conn):
                 input_value TEXT)",
 
             "CREATE TABLE heat_map(id SERIAL PRIMARY KEY, rank INT, \
-                symbol TEXT, time INT, instance INT, difference TEXT)",
+                symbol TEXT, time INT, instance INT, difference FLOAT)",
 
             "CREATE TABLE coins(id SERIAL PRIMARY KEY, name TEXT, symbol TEXT, \
                 coin_id TEXT, slug TEXT, rank INT, price_btc FLOAT, \
