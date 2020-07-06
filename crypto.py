@@ -58,8 +58,112 @@ def main():
         cur.execute('DELETE FROM biz_posts WHERE added <= %s', (cutoff,))
         conn.commit()
 
+    if sys.argv[1] == '24h':
+        cur = conn.cursor()
+        cur.execute('SELECT coin_id, name_count, symbol_count FROM biz_counts')
+
+        for v in cur.fetchall():
+            coin_id = v[0]
+
+            cur.execute('SELECT coin_id FROM biz_counts_24h WHERE coin_id = %s',
+                (coin_id, ))
+
+            if cur.fetchone() == None:
+               cur.execute('INSERT INTO biz_counts_24h (coin_id, \
+                    name_count, symbol_count) \
+                    VALUES (%s, %s, %s)',
+                    (v[0], v[1], v[2]))
+            else:
+                cur.execute('SELECT name_count, symbol_count FROM biz_counts \
+                    WHERE coin_id = %s', (coin_id, ))
+
+                a = cur.fetchall()[0]
+
+                cur.execute('SELECT name_count, symbol_count \
+                    FROM biz_counts_24h \
+                    WHERE coin_id = %s', (coin_id, ))
+
+                b = cur.fetchall()[0]
+
+                cur.execute('UPDATE biz_counts_24h SET \
+                    name_count = %s, symbol_count = %s WHERE coin_id = %s',
+                    (a[0] - b[0], a[1] - b[1], coin_id, ))
+
+        insert_value(cur, 'last_update_biz', int(time.time()))
+        conn.commit()
+
     if sys.argv[1] == 'test':
-        print int(time.time())
+        cur = conn.cursor()
+        url = 'http://a.4cdn.org/biz/'
+
+        cur.execute('SELECT lower(name) as lower_name, lower(symbol), name, \
+            rank, coin_id FROM coins')
+
+        coins = cur.fetchall()
+
+        cur.execute('SELECT input_value FROM key_values WHERE input_key = \
+            "last_post_no"')
+
+        try:
+            last_post_no = int(cur.fetchone()[0])
+        except:
+            last_post_no = 0
+
+        counts = {}
+        posts = []
+        max_post_no = 0
+
+        for coin in coins:
+            counts[coin[4]] = {'name_count': 0, 'symbol_count': 0,
+                'name': coin[2], 'rank': coin[3], 'symbol': coin[1]}
+
+        for page in read_json(url + 'threads.json'):
+            for thread in page['threads']:
+                v = read_json(url + 'thread/' + str(thread['no']) + '.json')
+
+                for post in v['posts']:
+                    post_no = post['no']
+
+                    if post_no > last_post_no:
+                        print post_no
+                        posts.append(post)
+                        max_post_no = max(post_no, max_post_no)
+
+        for post in posts:
+            try:
+                comment = post['com'].lower()
+            except:
+                continue
+
+            for coin in coins:
+                if comment.find(coin[0]) != -1:
+                    counts[coin[4]]['name_count'] += 1
+
+                if comment.find(coin[1]) != -1:
+                    counts[coin[4]]['symbol_count'] += 1
+
+        for item in counts.iteritems():
+            coin_id = item[0]
+            data = item[1]
+
+            cur.execute('SELECT coin_id FROM biz_counts WHERE coin_id = %s',
+                (coin_id, ))
+
+            if cur.fetchone() == None:
+               cur.execute('INSERT INTO biz_counts (name_count, \
+                    symbol_count, coin_id) \
+                    VALUES (%s, %s, %s)',
+                    (data['name_count'], data['symbol_count'], item[0]))
+            else:
+               cur.execute('UPDATE biz_counts SET \
+                    name_count = name_count + '
+                    + str(data['name_count']) + ', \
+                    symbol_count = symbol_count + '
+                    + str(data['symbol_count']) + ' WHERE coin_id = %s',
+                    (coin_id, ))
+
+        insert_value(cur, 'last_post_no', max_post_no)
+        conn.commit()
 
 def reddit(conn):
     url = ('https://www.reddit.com/r/CryptoCurrency/search.json?' +
@@ -71,10 +175,8 @@ def reddit(conn):
     for i in range(len(j['data']['children'])):
         print j['data']['children'][i]['data']['title']
 
-
 def heat_map(conn):
     cur = conn.cursor()
-
     cur.execute('SELECT symbol, rank FROM coins WHERE rank <= 100')
 
     for coin in cur.fetchall():
@@ -82,20 +184,17 @@ def heat_map(conn):
             '?fsym=' + coin[0] + '&tsym=USD&limit=20&aggregate=1&e=CCCAGG')
 
         j = read_json(url)
-
         prev = 0
 
         for i in range(len(j['Data'])):
             timestamp = j['Data'][i]['time']
             price = j['Data'][i]['high']
-
             diff = get_change(price, prev)
 
             if price < prev:
                 diff = diff * -1
 
             prev = price
-
             diff = str(round(diff, 2))
 
             q = 'INSERT INTO heat_map (rank, symbol, time, instance, \
@@ -104,13 +203,11 @@ def heat_map(conn):
             vals = (coin[1], coin[0], timestamp, 1, diff)
             cur.execute(q, vals)
 
-            print 'insert: ' + str(vals)
+            print 'Insert: ' + str(vals)
 
     cur.execute('DELETE FROM heat_map WHERE instance = 0')
     cur.execute('UPDATE heat_map SET instance = 0 WHERE instance = 1')
-
     insert_value(cur, 'last_update_heat_map', int(time.time()))
-
     conn.commit()
 
 def get_change(current, previous):
@@ -279,12 +376,12 @@ def insert_value(cur, key, value):
         q = 'INSERT INTO key_values (input_key, input_value) VALUES (%s, %s)'
         vals = (key, value)
 
-        print 'insert: ' + str(vals)
+        print 'Insert: ' + str(vals)
     else:
         q = 'UPDATE key_values SET input_value = %s WHERE input_key = %s'
         vals = (value, key)
 
-        print 'update: ' + str(vals)
+        print 'Update: ' + str(vals)
 
     cur.execute(q, vals)
 
@@ -386,7 +483,8 @@ def get_coins(conn, cmc_key, cmc_limit):
         except:
             volume_24h = volume_24h_percent = 0
 
-        cur.execute("SELECT id FROM coins WHERE coin_id = '%s'", (coin_id,))
+        cur.execute("SELECT coin_id FROM coins WHERE coin_id = '%s'",
+            (coin_id,))
 
         if cur.fetchone() == None:
             q = 'INSERT INTO coins (coin_id, rank, name, symbol, slug, \
@@ -499,8 +597,28 @@ def read_json(page):
 def create_tables(conn):
     cur = conn.cursor()
 
-    cmds = ["CREATE TABLE biz_counts(id SERIAL PRIMARY KEY, name TEXT, \
-                symbol TEXT, coin_id TEXT, rank INT, mention_count INT)",
+    cmds = ["CREATE TABLE coins(coin_id INT, name TEXT, \
+                symbol TEXT, slug TEXT, rank INT, price_btc FLOAT, \
+                price_usd FLOAT, price_eth FLOAT, total_supply FLOAT, \
+                circulating_supply FLOAT, max_supply FLOAT, \
+                change_1h FLOAT, change_24h FLOAT, change_7d FLOAT, \
+                market_cap FLOAT, market_cap_percent FLOAT, \
+                volume_24h FLOAT, volume_24h_percent FLOAT, \
+                PRIMARY KEY (coin_id))",
+
+            "CREATE TABLE biz_counts(coin_id INT, \
+                name_count INT, symbol_count INT, \
+                PRIMARY KEY(coin_id), \
+                FOREIGN KEY(coin_id) REFERENCES coins (coin_id) \
+                ON UPDATE CASCADE \
+                ON DELETE CASCADE)",
+
+            "CREATE TABLE biz_counts_24h(coin_id INT, \
+                name_count INT, symbol_count INT, \
+                PRIMARY KEY (coin_id), \
+                FOREIGN KEY(coin_id) REFERENCES coins (coin_id) \
+                ON UPDATE CASCADE \
+                ON DELETE CASCADE)",
 
             "CREATE TABLE biz_posts(id SERIAL PRIMARY KEY, comment TEXT, \
                 timestamp INT, added INT, post_id INT)",
@@ -508,16 +626,8 @@ def create_tables(conn):
             "CREATE TABLE key_values(id SERIAL PRIMARY KEY, input_key TEXT, \
                 input_value TEXT)",
 
-            "CREATE TABLE heat_map(id SERIAL PRIMARY KEY, rank INT, \
-                symbol TEXT, time INT, instance INT, difference FLOAT)",
-
-            "CREATE TABLE coins(id SERIAL PRIMARY KEY, name TEXT, symbol TEXT, \
-                coin_id TEXT, slug TEXT, rank INT, price_btc FLOAT, \
-                price_usd FLOAT, price_eth FLOAT, total_supply FLOAT, \
-                circulating_supply FLOAT, max_supply FLOAT, \
-                change_1h FLOAT, change_24h FLOAT, change_7d FLOAT, \
-                market_cap FLOAT, market_cap_percent FLOAT, \
-                volume_24h FLOAT, volume_24h_percent FLOAT)"]
+            "CREATE TABLE heat_map(rank INT, symbol TEXT, time INT, \
+                instance INT, difference FLOAT)",]
 
     for cmd in cmds:
         try:
