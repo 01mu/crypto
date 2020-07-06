@@ -1,5 +1,3 @@
-#!/usr/bin/env python
-
 #
 # crypto
 # github.com/01mu
@@ -13,11 +11,12 @@ import time
 import MySQLdb
 
 def main():
-    conn = make_conn('credentials')
+    cred = '../res/credentials'
+    opt = '../res/opt'
+
+    conn = make_conn(cred)
     conn.set_character_set('utf8')
-
-    opt = read_file('opt')
-
+    opt = read_file(opt)
     cmc_key = opt[0]
     cmc_limit = opt[1]
 
@@ -38,132 +37,122 @@ def main():
 
     if sys.argv[1] == 'biz-delete':
         cur = conn.cursor()
-
-        cur.execute('DELETE FROM biz_posts')
         cur.execute('DELETE FROM biz_counts')
-
-        print 'biz deleted'
-
-        conn.commit()
-
-    if sys.argv[1] == 'biz-update':
-        cur = conn.cursor()
-
-        recent = get_recent_biz_post(cur)
-        cutoff = get_cutoff(cur)
-
-        biz_posts(conn)
-        biz_counts(conn, recent, cutoff)
-
-        cur.execute('DELETE FROM biz_posts WHERE added <= %s', (cutoff,))
+        cur.execute('DELETE FROM biz_counts_24h')
         conn.commit()
 
     if sys.argv[1] == '24h':
-        cur = conn.cursor()
-        cur.execute('SELECT coin_id, name_count, symbol_count FROM biz_counts')
+        update_24h(conn)
 
-        for v in cur.fetchall():
-            coin_id = v[0]
+    if sys.argv[1] == 'biz':
+        update_biz(conn)
 
-            cur.execute('SELECT coin_id FROM biz_counts_24h WHERE coin_id = %s',
-                (coin_id, ))
+def update_24h(conn):
+    cur = conn.cursor()
+    cur.execute('SELECT coin_id, name_count, symbol_count FROM biz_counts')
 
-            if cur.fetchone() == None:
-               cur.execute('INSERT INTO biz_counts_24h (coin_id, \
-                    name_count, symbol_count) \
-                    VALUES (%s, %s, %s)',
-                    (v[0], v[1], v[2]))
-            else:
-                cur.execute('SELECT name_count, symbol_count FROM biz_counts \
-                    WHERE coin_id = %s', (coin_id, ))
+    for v in cur.fetchall():
+        coin_id = v[0]
 
-                a = cur.fetchall()[0]
+        cur.execute('SELECT coin_id FROM biz_counts_24h WHERE coin_id = %s',
+            (coin_id, ))
 
-                cur.execute('SELECT name_count, symbol_count \
-                    FROM biz_counts_24h \
-                    WHERE coin_id = %s', (coin_id, ))
+        if cur.fetchone() == None:
+           cur.execute('INSERT INTO biz_counts_24h (coin_id, \
+                name_count, symbol_count) \
+                VALUES (%s, %s, %s)',
+                (v[0], v[1], v[2]))
+        else:
+            cur.execute('SELECT name_count, symbol_count FROM biz_counts \
+                WHERE coin_id = %s', (coin_id, ))
 
-                b = cur.fetchall()[0]
+            a = cur.fetchall()[0]
 
-                cur.execute('UPDATE biz_counts_24h SET \
-                    name_count = %s, symbol_count = %s WHERE coin_id = %s',
-                    (a[0] - b[0], a[1] - b[1], coin_id, ))
+            cur.execute('SELECT name_count, symbol_count \
+                FROM biz_counts_24h \
+                WHERE coin_id = %s', (coin_id, ))
 
-        insert_value(cur, 'last_update_biz', int(time.time()))
-        conn.commit()
+            b = cur.fetchall()[0]
 
-    if sys.argv[1] == 'test':
-        cur = conn.cursor()
-        url = 'http://a.4cdn.org/biz/'
+            cur.execute('UPDATE biz_counts_24h SET \
+                name_count = %s, symbol_count = %s WHERE coin_id = %s',
+                (a[0] - b[0], a[1] - b[1], coin_id, ))
 
-        cur.execute('SELECT lower(name) as lower_name, lower(symbol), name, \
-            rank, coin_id FROM coins')
+    insert_value(cur, 'last_update_biz', int(time.time()))
+    conn.commit()
 
-        coins = cur.fetchall()
+def update_biz(conn):
+    cur = conn.cursor()
+    url = 'http://a.4cdn.org/biz/'
 
-        cur.execute('SELECT input_value FROM key_values WHERE input_key = \
-            "last_post_no"')
+    cur.execute('SELECT lower(name) as lower_name, lower(symbol), name, \
+        rank, coin_id FROM coins')
 
+    coins = cur.fetchall()
+
+    cur.execute('SELECT input_value FROM key_values WHERE input_key = \
+        "last_post_no"')
+
+    try:
+        last_post_no = int(cur.fetchone()[0])
+    except:
+        last_post_no = 0
+
+    counts = {}
+    posts = []
+    max_post_no = 0
+
+    for coin in coins:
+        counts[coin[4]] = {'name_count': 0, 'symbol_count': 0,
+            'name': coin[2], 'rank': coin[3], 'symbol': coin[1]}
+
+    for page in read_json(url + 'threads.json'):
+        for thread in page['threads']:
+            v = read_json(url + 'thread/' + str(thread['no']) + '.json')
+
+            for post in v['posts']:
+                post_no = post['no']
+
+                if post_no > last_post_no:
+                    print post_no
+                    posts.append(post)
+                    max_post_no = max(post_no, max_post_no)
+
+    for post in posts:
         try:
-            last_post_no = int(cur.fetchone()[0])
+            comment = post['com'].lower()
         except:
-            last_post_no = 0
-
-        counts = {}
-        posts = []
-        max_post_no = 0
+            continue
 
         for coin in coins:
-            counts[coin[4]] = {'name_count': 0, 'symbol_count': 0,
-                'name': coin[2], 'rank': coin[3], 'symbol': coin[1]}
+            if comment.find(coin[0]) != -1:
+                counts[coin[4]]['name_count'] += 1
 
-        for page in read_json(url + 'threads.json'):
-            for thread in page['threads']:
-                v = read_json(url + 'thread/' + str(thread['no']) + '.json')
+            if comment.find(coin[1]) != -1:
+                counts[coin[4]]['symbol_count'] += 1
 
-                for post in v['posts']:
-                    post_no = post['no']
+    for item in counts.iteritems():
+        coin_id = item[0]
+        data = item[1]
 
-                    if post_no > last_post_no:
-                        print post_no
-                        posts.append(post)
-                        max_post_no = max(post_no, max_post_no)
+        cur.execute('SELECT coin_id FROM biz_counts WHERE coin_id = %s',
+            (coin_id, ))
 
-        for post in posts:
-            try:
-                comment = post['com'].lower()
-            except:
-                continue
-
-            for coin in coins:
-                if comment.find(coin[0]) != -1:
-                    counts[coin[4]]['name_count'] += 1
-
-                if comment.find(coin[1]) != -1:
-                    counts[coin[4]]['symbol_count'] += 1
-
-        for item in counts.iteritems():
-            coin_id = item[0]
-            data = item[1]
-
-            cur.execute('SELECT coin_id FROM biz_counts WHERE coin_id = %s',
+        if cur.fetchone() == None:
+           cur.execute('INSERT INTO biz_counts (name_count, \
+                symbol_count, coin_id) \
+                VALUES (%s, %s, %s)',
+                (data['name_count'], data['symbol_count'], item[0]))
+        else:
+           cur.execute('UPDATE biz_counts SET \
+                name_count = name_count + '
+                + str(data['name_count']) + ', \
+                symbol_count = symbol_count + '
+                + str(data['symbol_count']) + ' WHERE coin_id = %s',
                 (coin_id, ))
 
-            if cur.fetchone() == None:
-               cur.execute('INSERT INTO biz_counts (name_count, \
-                    symbol_count, coin_id) \
-                    VALUES (%s, %s, %s)',
-                    (data['name_count'], data['symbol_count'], item[0]))
-            else:
-               cur.execute('UPDATE biz_counts SET \
-                    name_count = name_count + '
-                    + str(data['name_count']) + ', \
-                    symbol_count = symbol_count + '
-                    + str(data['symbol_count']) + ' WHERE coin_id = %s',
-                    (coin_id, ))
-
-        insert_value(cur, 'last_post_no', max_post_no)
-        conn.commit()
+    insert_value(cur, 'last_post_no', max_post_no)
+    conn.commit()
 
 def reddit(conn):
     url = ('https://www.reddit.com/r/CryptoCurrency/search.json?' +
@@ -217,157 +206,6 @@ def get_change(current, previous):
         return (abs(current - previous) / previous) * 100
     except ZeroDivisionError:
         return 0
-
-def get_cutoff(cur):
-    cutoff = int(time.time()) - 86400
-
-    q = 'SELECT post_id FROM biz_posts WHERE added <= %s \
-        ORDER BY added DESC LIMIT 1'
-
-    cur.execute(q, (cutoff,))
-
-    try:
-        cutoff = cur.fetchone()[0]
-    except:
-        cutoff = 0
-
-    return cutoff
-
-
-def get_recent_biz_post(cur):
-    q = 'SELECT post_id FROM biz_posts ORDER BY added DESC LIMIT 1'
-    cur.execute(q)
-
-    try:
-        recent = cur.fetchone()[0]
-    except:
-        recent = 0
-
-    return recent
-
-def biz_counts(conn, recent, cutoff):
-    cur = conn.cursor()
-
-    cur.execute('SELECT coin_id, name, symbol, rank FROM coins')
-
-    for coin in cur.fetchall():
-        coin_id = coin[0]
-        name = coin[1]
-        symbol = coin[2]
-        rank = coin[3]
-
-        name_c = '% ' + name + ' %';
-        name_l = '% ' + name;
-        name_r = name + ' %';
-
-        symbol_c = '% ' + symbol +' %';
-        symbol_l = '% ' + symbol;
-        symbol_r = symbol + ' %';
-
-        q = 'SELECT COUNT(id) FROM biz_posts WHERE \
-            (comment LIKE %s OR comment LIKE %s OR comment LIKE %s \
-            OR comment LIKE %s OR comment LIKE %s OR comment LIKE %s) \
-            AND post_id > %s'
-
-        vals = (name_c, name_l, name_r, symbol_c, symbol_l, symbol_r,
-            recent)
-
-        cur.execute(q, vals)
-
-        mention_count = cur.fetchone()[0]
-
-        q = 'SELECT id FROM biz_counts WHERE coin_id = %s'
-        vals = (coin_id,)
-        cur.execute(q, vals)
-
-        if cur.fetchone() == None:
-            q = 'INSERT INTO biz_counts (rank, name, symbol, coin_id, \
-                mention_count) VALUES (%s, %s, %s, %s, %s)'
-
-            vals = (rank, name, symbol, coin_id, mention_count)
-
-            print 'insert: ' + str(vals)
-        else:
-            #
-            # Select old mention count from table.
-            #
-            q = 'SELECT mention_count FROM biz_counts WHERE coin_id = %s'
-            args = (coin_id,)
-            cur.execute(q, vals)
-
-            old_count = cur.fetchone()[0]
-
-            #
-            # Get mention count from posts older than 24 hours.
-            #
-            q = 'SELECT COUNT(id) FROM biz_posts WHERE \
-                (comment LIKE %s OR comment LIKE %s OR comment LIKE %s \
-                OR comment LIKE %s OR comment LIKE %s OR comment LIKE %s) \
-                AND added <= %s'
-
-            vals = (name_c, name_l, name_r, symbol_c, symbol_l, symbol_r,
-                cutoff)
-
-            cur.execute(q, vals)
-
-            older_24h = cur.fetchone()[0]
-
-            #
-            # Determine mention count for coin over the last 24 hours.
-            #
-            q = 'UPDATE biz_counts SET rank = %s, mention_count = %s \
-                    WHERE coin_id = %s'
-
-            vals = (rank, old_count + mention_count - older_24h, coin_id)
-
-            print 'update: ' + str(vals)
-
-        cur.execute(q, vals)
-
-    insert_value(cur, 'last_update_biz_counts', int(time.time()))
-
-    conn.commit()
-
-def biz_posts(conn):
-    cur = conn.cursor()
-
-    url = 'http://a.4cdn.org/biz/threads.json'
-    j = read_json(url)
-
-    for page in j:
-        for thread in page['threads']:
-            thread_id = str(thread['no'])
-
-            url = 'http://a.4cdn.org/biz/thread/' + thread_id + '.json'
-            j = read_json(url)
-
-            for post in j['posts']:
-                try:
-                    comment = post['com']
-                except:
-                    continue
-
-                timestamp = post['time']
-                post_id = post['no']
-
-                vals = (post_id, comment, timestamp, int(time.time()))
-
-                q = 'SELECT id FROM biz_posts WHERE post_id = %s'
-
-                cur.execute(q, (post_id,))
-
-                if cur.fetchone() == None:
-                    q = 'INSERT INTO biz_posts (post_id, comment, timestamp, \
-                        added) VALUES (%s, %s, %s, %s)'
-
-                    cur.execute(q, vals)
-
-                    print 'insert: ' + str(vals)
-                else:
-                    print 'skipped: ' + str(vals)
-
-
-    conn.commit()
 
 def insert_value(cur, key, value):
     cur.execute('SELECT id FROM key_values WHERE input_key = %s', (key,))
