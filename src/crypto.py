@@ -19,35 +19,31 @@ def main():
     opt = read_file(opt)
     cmc_key = opt[0]
     cmc_limit = opt[1]
+    arg = sys.argv[1]
 
-    if sys.argv[1] == 'reddit':
-        reddit(conn)
-
-    if sys.argv[1] == 'heat-map':
-        heat_map(conn)
-
-    if sys.argv[1] == 'tables':
+    if arg == 'reddit':
+        update_reddit(conn)
+    elif arg == 'heat-map':
+        update_heat_map(conn)
+    elif arg == 'tables':
         create_tables(conn)
-
-    if sys.argv[1] == 'coins':
-        get_coins(conn, cmc_key, cmc_limit)
-
-    if sys.argv[1] == 'rates':
-        cc_exchange(conn)
-
-    if sys.argv[1] == 'biz-delete':
+    elif arg == 'coins':
+        update_coins(conn, cmc_key, cmc_limit)
+    elif arg == 'rates':
+        update_rates(conn)
+    elif arg == 'biz-delete':
         cur = conn.cursor()
         cur.execute('DELETE FROM biz_counts')
         cur.execute('DELETE FROM biz_counts_24h')
+        cur.execute('DELETE FROM key_values WHERE input_key = \
+            "last_post_no"')
         conn.commit()
-
-    if sys.argv[1] == '24h':
-        update_24h(conn)
-
-    if sys.argv[1] == 'biz':
+    elif arg == 'biz-24h':
+        update_24h_biz(conn)
+    elif arg == 'biz-update':
         update_biz(conn)
 
-def update_24h(conn):
+def update_24h_biz(conn):
     cur = conn.cursor()
     cur.execute('SELECT coin_id, name_count, symbol_count FROM biz_counts')
 
@@ -59,24 +55,22 @@ def update_24h(conn):
 
         if cur.fetchone() == None:
            cur.execute('INSERT INTO biz_counts_24h (coin_id, \
-                name_count, symbol_count) \
-                VALUES (%s, %s, %s)',
-                (v[0], v[1], v[2]))
+                name_count, symbol_count, total) \
+                VALUES (%s, %s, %s, %s)',
+                (v[0], v[1], v[2], v[1]+v[2]))
         else:
             cur.execute('SELECT name_count, symbol_count FROM biz_counts \
                 WHERE coin_id = %s', (coin_id, ))
 
             a = cur.fetchall()[0]
 
-            cur.execute('SELECT name_count, symbol_count \
-                FROM biz_counts_24h \
-                WHERE coin_id = %s', (coin_id, ))
-
-            b = cur.fetchall()[0]
-
-            cur.execute('UPDATE biz_counts_24h SET \
+            cur.execute('UPDATE biz_counts_24h SET total = %s, \
                 name_count = %s, symbol_count = %s WHERE coin_id = %s',
-                (a[0] - b[0], a[1] - b[1], coin_id, ))
+                (a[0]+a[1], a[0], a[1], coin_id))
+
+    cur.execute('DELETE FROM biz_counts')
+    cur.execute('DELETE FROM key_values WHERE input_key = \
+        "last_post_no"')
 
     insert_value(cur, 'last_update_biz', int(time.time()))
     conn.commit()
@@ -154,7 +148,7 @@ def update_biz(conn):
     insert_value(cur, 'last_post_no', max_post_no)
     conn.commit()
 
-def reddit(conn):
+def update_reddit(conn):
     url = ('https://www.reddit.com/r/CryptoCurrency/search.json?' +
         'q=subreddit%3Acryptocurrency+%22daily+discussion%22&' +
         'sort=new&t=all')
@@ -164,7 +158,7 @@ def reddit(conn):
     for i in range(len(j['data']['children'])):
         print j['data']['children'][i]['data']['title']
 
-def heat_map(conn):
+def update_heat_map(conn):
     cur = conn.cursor()
     cur.execute('SELECT symbol, rank FROM coins WHERE rank <= 100')
 
@@ -208,7 +202,7 @@ def get_change(current, previous):
         return 0
 
 def insert_value(cur, key, value):
-    cur.execute('SELECT id FROM key_values WHERE input_key = %s', (key,))
+    cur.execute('SELECT input_key FROM key_values WHERE input_key = %s', (key,))
 
     if cur.fetchone() == None:
         q = 'INSERT INTO key_values (input_key, input_value) VALUES (%s, %s)'
@@ -223,7 +217,7 @@ def insert_value(cur, key, value):
 
     cur.execute(q, vals)
 
-def cc_exchange(conn):
+def update_rates(conn):
     cur = conn.cursor()
 
     vals = ['CAD', 'EUR', 'GBP', 'INR', 'MXN']
@@ -257,7 +251,7 @@ def remove_diff_coins(cur, coins):
 
     return to_delete
 
-def get_coins(conn, cmc_key, cmc_limit):
+def update_coins(conn, cmc_key, cmc_limit):
     cur = conn.cursor()
 
     coin_vals = get_btc_eth(cmc_key)
@@ -365,7 +359,6 @@ def get_coins(conn, cmc_key, cmc_limit):
     print '\ndeleted: ' + str(to_delete)
 
     insert_value(cur, 'last_update_coins', int(time.time()))
-
     conn.commit()
 
 def get_cmc_coins(cmc_key, limit):
@@ -452,16 +445,13 @@ def create_tables(conn):
                 ON DELETE CASCADE)",
 
             "CREATE TABLE biz_counts_24h(coin_id INT, \
-                name_count INT, symbol_count INT, \
+                name_count INT, symbol_count INT, total INT \
                 PRIMARY KEY (coin_id), \
                 FOREIGN KEY(coin_id) REFERENCES coins (coin_id) \
                 ON UPDATE CASCADE \
                 ON DELETE CASCADE)",
 
-            "CREATE TABLE biz_posts(id SERIAL PRIMARY KEY, comment TEXT, \
-                timestamp INT, added INT, post_id INT)",
-
-            "CREATE TABLE key_values(id SERIAL PRIMARY KEY, input_key TEXT, \
+            "CREATE TABLE key_values(input_key TEXT, \
                 input_value TEXT)",
 
             "CREATE TABLE heat_map(rank INT, symbol TEXT, time INT, \
