@@ -50,23 +50,31 @@ def update_24h_biz(conn):
     for v in cur.fetchall():
         coin_id = v[0]
 
-        cur.execute('SELECT coin_id FROM biz_counts_24h WHERE coin_id = %s',
-            (coin_id, ))
+        cur.execute('SELECT coin_id FROM biz_counts_24h \
+            WHERE coin_id = %s', (coin_id, ))
 
         if cur.fetchone() == None:
-           cur.execute('INSERT INTO biz_counts_24h (coin_id, \
-                name_count, symbol_count, total) \
-                VALUES (%s, %s, %s, %s)',
+            cur.execute('INSERT INTO biz_counts_24h (coin_id, \
+                name_count, symbol_count, name_count_prev, \
+                symbol_count_prev, total) \
+                VALUES (%s, %s, %s, 0, 0, %s)',
                 (v[0], v[1], v[2], v[1]+v[2]))
         else:
+            cur.execute('SELECT coin_id, name_count, symbol_count \
+                FROM biz_counts_24h WHERE coin_id = %s',
+                (coin_id, ))
+
+            z = cur.fetchall()[0]
+
             cur.execute('SELECT name_count, symbol_count FROM biz_counts \
                 WHERE coin_id = %s', (coin_id, ))
 
             a = cur.fetchall()[0]
 
             cur.execute('UPDATE biz_counts_24h SET total = %s, \
-                name_count = %s, symbol_count = %s WHERE coin_id = %s',
-                (a[0]+a[1], a[0], a[1], coin_id))
+                name_count = %s, symbol_count = %s, name_count_prev = %s, \
+                symbol_count_prev = %s WHERE coin_id = %s',
+                (a[0]+a[1], a[0], a[1], z[1], z[2], coin_id))
 
     cur.execute('DELETE FROM biz_counts')
     cur.execute('DELETE FROM key_values WHERE input_key = \
@@ -102,7 +110,10 @@ def update_biz(conn):
 
     for page in read_json(url + 'threads.json'):
         for thread in page['threads']:
-            v = read_json(url + 'thread/' + str(thread['no']) + '.json')
+            try:
+                v = read_json(url + 'thread/' + str(thread['no']) + '.json')
+            except:
+                continue
 
             for post in v['posts']:
                 post_no = post['no']
@@ -445,7 +456,8 @@ def create_tables(conn):
                 ON DELETE CASCADE)",
 
             "CREATE TABLE biz_counts_24h(coin_id INT, \
-                name_count INT, symbol_count INT, total INT \
+                name_count INT, symbol_count INT, total INT, \
+                name_count_prev INT, symbol_count_prev INT, \
                 PRIMARY KEY (coin_id), \
                 FOREIGN KEY(coin_id) REFERENCES coins (coin_id) \
                 ON UPDATE CASCADE \
