@@ -11,45 +11,27 @@ import time
 import MySQLdb
 
 def main():
-    cred = '../res/credentials'
-    opt = '../res/opt'
-
-    conn = make_conn(cred)
+    conn = make_conn('../res/credentials')
     conn.set_character_set('utf8')
-    opt = read_file(opt)
-    cmc_key = opt[0]
-    cmc_limit = opt[1]
-    arg = sys.argv[1]
 
-    if arg == 'reddit':
-        update_reddit(conn)
-    elif arg == 'heat-map':
-        update_heat_map(conn)
-    elif arg == 'tables':
-        create_tables(conn)
-    elif arg == 'coins':
-        update_coins(conn, cmc_key, cmc_limit)
-    elif arg == 'rates':
-        update_rates(conn)
-    elif arg == 'biz-delete':
-        cur = conn.cursor()
-        cur.execute('DELETE FROM biz_counts')
-        cur.execute('DELETE FROM biz_counts_24h')
-        cur.execute('DELETE FROM key_values WHERE input_key = \
-            "last_post_no"')
-        conn.commit()
-    elif arg == 'biz-24h':
-        update_24h_biz(conn)
-    elif arg == 'biz-update':
-        update_biz(conn)
+    {'reddit': update_reddit, 'heat-map': update_heat_map,
+        'tables': create_tables, 'coins': update_coins,
+        'biz-delete': biz_delete, 'biz-24h': update_biz_24h,
+        'biz-update': update_biz}.get(sys.argv[1])(conn)
 
-def update_24h_biz(conn):
+def biz_delete(conn):
+    cur = conn.cursor()
+    cur.execute('DELETE FROM biz_counts')
+    cur.execute('DELETE FROM biz_counts_24h')
+    cur.execute('DELETE FROM key_values WHERE input_key = "last_post_no"')
+    conn.commit()
+
+def update_biz_24h(conn):
     cur = conn.cursor()
     cur.execute('SELECT coin_id, name_count, symbol_count FROM biz_counts')
 
     for v in cur.fetchall():
         coin_id = v[0]
-
         cur.execute('SELECT coin_id FROM biz_counts_24h \
             WHERE coin_id = %s', (coin_id, ))
 
@@ -60,26 +42,20 @@ def update_24h_biz(conn):
                 VALUES (%s, %s, %s, 0, 0, %s)',
                 (v[0], v[1], v[2], v[1]+v[2]))
         else:
-            cur.execute('SELECT coin_id, name_count, symbol_count \
+            cur.execute('SELECT name_count, symbol_count \
                 FROM biz_counts_24h WHERE coin_id = %s',
                 (coin_id, ))
-
             z = cur.fetchall()[0]
-
             cur.execute('SELECT name_count, symbol_count FROM biz_counts \
                 WHERE coin_id = %s', (coin_id, ))
-
             a = cur.fetchall()[0]
-
             cur.execute('UPDATE biz_counts_24h SET total = %s, \
                 name_count = %s, symbol_count = %s, name_count_prev = %s, \
                 symbol_count_prev = %s WHERE coin_id = %s',
-                (a[0]+a[1], a[0], a[1], z[1], z[2], coin_id))
+                (a[0]+a[1], a[0], a[1], z[0], z[1], coin_id))
 
     cur.execute('DELETE FROM biz_counts')
-    cur.execute('DELETE FROM key_values WHERE input_key = \
-        "last_post_no"')
-
+    cur.execute('DELETE FROM key_values WHERE input_key = "last_post_no"')
     insert_value(cur, 'last_update_biz', int(time.time()))
     conn.commit()
 
@@ -218,12 +194,10 @@ def insert_value(cur, key, value):
     if cur.fetchone() == None:
         q = 'INSERT INTO key_values (input_key, input_value) VALUES (%s, %s)'
         vals = (key, value)
-
         print 'Insert: ' + str(vals)
     else:
         q = 'UPDATE key_values SET input_value = %s WHERE input_key = %s'
         vals = (value, key)
-
         print 'Update: ' + str(vals)
 
     cur.execute(q, vals)
@@ -262,9 +236,11 @@ def remove_diff_coins(cur, coins):
 
     return to_delete
 
-def update_coins(conn, cmc_key, cmc_limit):
+def update_coins(conn):
     cur = conn.cursor()
-
+    opt = read_file('../res/opt')
+    cmc_key = opt[0]
+    cmc_limit = opt[1]
     coin_vals = get_btc_eth(cmc_key)
     global_vals = get_global(cmc_key)
 
