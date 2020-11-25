@@ -64,7 +64,7 @@ def update_biz(conn):
     url = 'http://a.4cdn.org/biz/'
 
     cur.execute('SELECT lower(name) as lower_name, lower(symbol), name, \
-        rank, coin_id FROM coins')
+        `rank`, coin_id FROM coins')
 
     coins = cur.fetchall()
 
@@ -147,7 +147,7 @@ def update_reddit(conn):
 
 def update_heat_map(conn):
     cur = conn.cursor()
-    cur.execute('SELECT symbol, rank FROM coins WHERE rank <= 100')
+    cur.execute('SELECT symbol, `rank` FROM coins WHERE `rank` <= 100')
 
     for coin in cur.fetchall():
         url = ('https://min-api.cryptocompare.com/data/histoday' +
@@ -167,7 +167,7 @@ def update_heat_map(conn):
             prev = price
             diff = str(round(diff, 2))
 
-            q = 'INSERT INTO heat_map (rank, symbol, time, instance, \
+            q = 'INSERT INTO heat_map (`rank`, symbol, time, instance, \
                 difference) VALUES (%s, %s, %s, %s, %s)'
 
             vals = (coin[1], coin[0], timestamp, 1, diff)
@@ -306,7 +306,7 @@ def update_coins(conn):
             (coin_id,))
 
         if cur.fetchone() == None:
-            q = 'INSERT INTO coins (coin_id, rank, name, symbol, slug, \
+            q = 'INSERT INTO coins (coin_id, `rank`, name, symbol, slug, \
                 price_btc, price_usd, price_eth, total_supply, \
                 circulating_supply, max_supply, change_1h, change_24h, \
                 change_7d, market_cap, market_cap_percent, volume_24h, \
@@ -325,7 +325,7 @@ def update_coins(conn):
 
             print 'insert: ' + str(vals)
         else:
-            q = "UPDATE coins SET rank = %s, name = %s, symbol = %s, \
+            q = "UPDATE coins SET `rank` = %s, name = %s, symbol = %s, \
                 slug = %s, price_btc = %s, price_usd = %s, price_eth = %s, \
                 total_supply = %s, circulating_supply = %s, \
                 max_supply = %s, change_1h = %s, change_24h = %s, \
@@ -416,7 +416,7 @@ def create_tables(conn):
     cur = conn.cursor()
 
     cmds = ["CREATE TABLE coins(coin_id INT, name TEXT, \
-                symbol TEXT, slug TEXT, rank INT, price_btc FLOAT, \
+                symbol TEXT, slug TEXT, `rank` INT, price_btc FLOAT, \
                 price_usd FLOAT, price_eth FLOAT, total_supply FLOAT, \
                 circulating_supply FLOAT, max_supply FLOAT, \
                 change_1h FLOAT, change_24h FLOAT, change_7d FLOAT, \
@@ -442,7 +442,7 @@ def create_tables(conn):
             "CREATE TABLE key_values(input_key TEXT, \
                 input_value TEXT)",
 
-            "CREATE TABLE heat_map(rank INT, symbol TEXT, time INT, \
+            "CREATE TABLE heat_map(`rank` INT, symbol TEXT, time INT, \
                 instance INT, difference FLOAT)",]
 
     for cmd in cmds:
