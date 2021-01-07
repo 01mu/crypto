@@ -9,6 +9,7 @@ import json
 import urllib
 import time
 import MySQLdb
+import arrow
 
 def main():
     conn = make_conn('../res/credentials')
@@ -17,7 +18,41 @@ def main():
     {'reddit': update_reddit, 'heat-map': update_heat_map,
         'tables': create_tables, 'coins': update_coins,
         'biz-delete': biz_delete, 'biz-24h': update_biz_24h,
+        'news': news,
         'biz-update': update_biz}.get(sys.argv[1])(conn)
+
+def news(conn):
+  cur = conn.cursor()
+  api = read_file('../res/news')[0]
+  url = ('https://newsapi.org/v2/everything?' +
+    'qInTitle=(bitcoin%20OR%20cryptocurrency)&pageSize=100' +
+    '&language=en&sortBy=publishedAt&apiKey=' + api)
+
+  cur.execute('SELECT input_value FROM key_values WHERE input_key = \
+    "news_last_update"')
+
+  last_update = cur.fetchone()
+
+  if last_update != None:
+    last_update = last_update[0]
+
+  response = read_json(url)
+
+  for article in response['articles']:
+    source = article['source']['name']
+    url = article['url']
+    title = article['title']
+    image = article['urlToImage']
+    published = arrow.get(article['publishedAt']).timestamp
+
+    if published > last_update:
+      q = 'INSERT INTO news (title, source, url, image, \
+        published) VALUES (%s, %s, %s, %s, %s)'
+
+      cur.execute(q, (title, source, url, image, published, ))
+
+  insert_value(cur, 'news_last_update', int(time.time()))
+  conn.commit()
 
 def biz_delete(conn):
     cur = conn.cursor()
