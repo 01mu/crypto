@@ -25,7 +25,7 @@ def news(conn):
   cur = conn.cursor()
   api = read_file('../res/news')[0]
   url = ('https://newsapi.org/v2/everything?' +
-    'qInTitle=(bitcoin%20OR%20cryptocurrency)&pageSize=100' +
+    'qInTitle=(bitcoin%20OR%20cryptocurrency%20OR%20ethereum)&pageSize=100' +
     '&language=en&sortBy=publishedAt&apiKey=' + api)
 
   cur.execute('SELECT input_value FROM key_values WHERE input_key = \
@@ -34,7 +34,7 @@ def news(conn):
   last_update = cur.fetchone()
 
   if last_update != None:
-    last_update = last_update[0]
+    last_update = int(last_update[0])
 
   response = read_json(url)
 
@@ -46,10 +46,13 @@ def news(conn):
     published = arrow.get(article['publishedAt']).timestamp
 
     if published > last_update:
-      q = 'INSERT INTO news (title, source, url, image, \
-        published) VALUES (%s, %s, %s, %s, %s)'
+      try:
+        q = 'INSERT INTO news (title, source, url, image, \
+          published) VALUES (%s, %s, %s, %s, %s)'
 
-      cur.execute(q, (title, source, url, image, published, ))
+        cur.execute(q, (title, source, url, image, published, ))
+      except:
+        continue
 
   insert_value(cur, 'news_last_update', int(time.time()))
   conn.commit()
