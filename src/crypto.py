@@ -9,12 +9,11 @@ import json
 import urllib
 import urllib.request as urlre
 import time
-import MySQLdb
+import pymysql
 import arrow
 
 def main():
     conn = make_conn('../res/credentials')
-    conn.set_character_set('utf8')
 
     {'reddit': update_reddit, 'heat-map': update_heat_map,
         'coins': update_coins, 'biz-delete': biz_delete,
@@ -70,6 +69,17 @@ def biz_delete(conn):
 
     conn.commit()
 
+def get_biz_last_post(cur):
+    cur.execute('SELECT input_value FROM key_values WHERE input_key = \
+        "last_post_no"')
+
+    try:
+        last_post_no = int(cur.fetchone()[0])
+    except:
+        last_post_no = 0
+
+    return last_post_no
+
 def update_biz_24h(conn):
     cur = conn.cursor()
     cur.execute('SELECT coin_id, name_count, symbol_count FROM biz_counts')
@@ -104,8 +114,11 @@ def update_biz_24h(conn):
                 (current[0] + current[1], current[0], current[1],
                     previous[0], previous[1], coin_id))
 
+    last_post_no = get_biz_last_post(cur)
+
     cur.execute('DELETE FROM biz_counts')
     cur.execute('DELETE FROM key_values WHERE input_key = "last_post_no"')
+    cur.execute('DELETE FROM biz_posts WHERE post_id < %s', (last_post_no, ))
 
     insert_value(cur, 'last_update_biz', int(time.time()))
 
@@ -115,14 +128,7 @@ def get_biz_posts(cur):
     url = 'http://a.4cdn.org/biz/'
     posts = []
 
-    cur.execute('SELECT input_value FROM key_values WHERE input_key = \
-        "last_post_no"')
-
-    try:
-        last_post_no = int(cur.fetchone()[0])
-    except:
-        last_post_no = 0
-
+    last_post_no = get_biz_last_post(cur)
     max_post_no = 0
 
     for page in read_json(url + 'threads.json'):
@@ -480,12 +486,14 @@ def make_conn(cred_file):
 
     if creds[0] == 'mysql':
         if len(creds) == 7:
-            return MySQLdb.connect(db = creds[1],
+            return pymysql.connect(charset='utf8',
+            db = creds[1],
                 user = creds[2],
                 passwd = creds[3],
                 unix_socket = creds[6])
         else:
-            return MySQLdb.connect(db = creds[1],
+            return pymysql.connect(charset='utf8',
+            db = creds[1],
                 user = creds[2],
                 passwd = creds[3])
     else:
