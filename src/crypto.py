@@ -7,6 +7,7 @@ import sys
 import psycopg2
 import json
 import urllib
+import urllib.request as urlre
 import time
 import MySQLdb
 import arrow
@@ -16,60 +17,65 @@ def main():
     conn.set_character_set('utf8')
 
     {'reddit': update_reddit, 'heat-map': update_heat_map,
-        'tables': create_tables, 'coins': update_coins,
-        'biz-delete': biz_delete, 'biz-24h': update_biz_24h,
-        'news': news,
+        'coins': update_coins, 'biz-delete': biz_delete,
+        'biz-24h': update_biz_24h, 'news': news,
         'biz-update': update_biz}.get(sys.argv[1])(conn)
 
 def news(conn):
-  cur = conn.cursor()
-  api = read_file('../res/news')[0]
-  url = ('https://newsapi.org/v2/everything?' +
-    'qInTitle=(bitcoin%20OR%20cryptocurrency%20OR%20ethereum)&pageSize=100' +
-    '&language=en&sortBy=publishedAt&apiKey=' + api)
+    cur = conn.cursor()
 
-  cur.execute('SELECT input_value FROM key_values WHERE input_key = \
-    "news_last_update"')
+    api = read_file('../res/news')[0]
 
-  last_update = cur.fetchone()
+    url = ('https://newsapi.org/v2/everything?' +
+        'qInTitle=(bitcoin%20OR%20cryptocurrency%20OR%20ethereum)' +
+        '&pageSize=100&language=en&sortBy=publishedAt&apiKey=' + api)
 
-  if last_update != None:
-    last_update = int(last_update[0])
+    cur.execute('SELECT input_value FROM key_values WHERE input_key = \
+        "news_last_update"')
 
-  response = read_json(url)
+    last_update = cur.fetchone()
 
-  for article in response['articles']:
-    source = article['source']['name']
-    url = article['url']
-    title = article['title']
-    image = article['urlToImage']
-    published = arrow.get(article['publishedAt']).timestamp
+    if last_update != None:
+        last_update = int(last_update[0])
+    else:
+        last_update = 0
 
-    if published > last_update:
-      try:
-        q = 'INSERT INTO news (title, source, url, image, \
-          published) VALUES (%s, %s, %s, %s, %s)'
+    response = read_json(url)
 
-        cur.execute(q, (title, source, url, image, published, ))
-      except:
-        continue
+    for article in response['articles']:
+        source = article['source']['name']
+        url = article['url']
+        title = article['title']
+        image = article['urlToImage']
+        published = arrow.get(article['publishedAt']).timestamp
 
-  insert_value(cur, 'news_last_update', int(time.time()))
-  conn.commit()
+        if published > last_update:
+            try:
+                q = 'INSERT INTO news (title, source, url, image, \
+                published) VALUES (%s, %s, %s, %s, %s)'
+
+                cur.execute(q, (title, source, url, image, published, ))
+            except:
+                continue
+
+    insert_value(cur, 'news_last_update', int(time.time()))
+    conn.commit()
 
 def biz_delete(conn):
     cur = conn.cursor()
+
     cur.execute('DELETE FROM biz_counts')
     cur.execute('DELETE FROM biz_counts_24h')
     cur.execute('DELETE FROM key_values WHERE input_key = "last_post_no"')
+
     conn.commit()
 
 def update_biz_24h(conn):
     cur = conn.cursor()
     cur.execute('SELECT coin_id, name_count, symbol_count FROM biz_counts')
 
-    for v in cur.fetchall():
-        coin_id = v[0]
+    for count_data in cur.fetchall():
+        coin_id = count_data[0]
         cur.execute('SELECT coin_id FROM biz_counts_24h \
             WHERE coin_id = %s', (coin_id, ))
 
@@ -78,33 +84,36 @@ def update_biz_24h(conn):
                 name_count, symbol_count, name_count_prev, \
                 symbol_count_prev, total) \
                 VALUES (%s, %s, %s, 0, 0, %s)',
-                (v[0], v[1], v[2], v[1]+v[2]))
+                (count_data[0], count_data[1], count_data[2],
+                    count_data[1] + count_data[2]))
         else:
             cur.execute('SELECT name_count, symbol_count \
                 FROM biz_counts_24h WHERE coin_id = %s',
                 (coin_id, ))
-            z = cur.fetchall()[0]
+
+            previous = cur.fetchall()[0]
+
             cur.execute('SELECT name_count, symbol_count FROM biz_counts \
                 WHERE coin_id = %s', (coin_id, ))
-            a = cur.fetchall()[0]
+
+            current = cur.fetchall()[0]
+
             cur.execute('UPDATE biz_counts_24h SET total = %s, \
                 name_count = %s, symbol_count = %s, name_count_prev = %s, \
                 symbol_count_prev = %s WHERE coin_id = %s',
-                (a[0]+a[1], a[0], a[1], z[0], z[1], coin_id))
+                (current[0] + current[1], current[0], current[1],
+                    previous[0], previous[1], coin_id))
 
     cur.execute('DELETE FROM biz_counts')
     cur.execute('DELETE FROM key_values WHERE input_key = "last_post_no"')
+
     insert_value(cur, 'last_update_biz', int(time.time()))
+
     conn.commit()
 
-def update_biz(conn):
-    cur = conn.cursor()
+def get_biz_posts(cur):
     url = 'http://a.4cdn.org/biz/'
-
-    cur.execute('SELECT lower(name) as lower_name, lower(symbol), name, \
-        `rank`, coin_id FROM coins')
-
-    coins = cur.fetchall()
+    posts = []
 
     cur.execute('SELECT input_value FROM key_values WHERE input_key = \
         "last_post_no"')
@@ -114,13 +123,7 @@ def update_biz(conn):
     except:
         last_post_no = 0
 
-    counts = {}
-    posts = []
     max_post_no = 0
-
-    for coin in coins:
-        counts[coin[4]] = {'name_count': 0, 'symbol_count': 0,
-            'name': coin[2], 'rank': coin[3], 'symbol': coin[1]}
 
     for page in read_json(url + 'threads.json'):
         for thread in page['threads']:
@@ -133,24 +136,45 @@ def update_biz(conn):
                 post_no = post['no']
 
                 if post_no > last_post_no:
-                    print post_no
+                    print('Appending post ID: ' + str(post_no))
                     posts.append(post)
                     max_post_no = max(post_no, max_post_no)
 
+    insert_value(cur, 'last_post_no', max_post_no)
+
+    return posts
+
+def parse_posts(counts, posts, coins):
     for post in posts:
         try:
             comment = post['com'].lower()
         except:
             continue
 
+        post = {'com': post['com'], 'time': post['time'], 'no': post['no']}
+
         for coin in coins:
+            found = 0
+
             if comment.find(coin[0]) != -1:
                 counts[coin[4]]['name_count'] += 1
-
-            if comment.find(coin[1]) != -1:
+                counts[coin[4]]['posts'].append(post)
+            elif comment.find(coin[1]) != -1:
                 counts[coin[4]]['symbol_count'] += 1
+                counts[coin[4]]['posts'].append(post)
 
-    for item in counts.iteritems():
+def init_coin_counts(cur, coins):
+    counts = {}
+
+    for coin in coins:
+        counts[coin[4]] = {'name_count': 0, 'symbol_count': 0,
+            'name': coin[2], 'rank': coin[3], 'symbol': coin[1],
+            'posts': []}
+
+    return counts
+
+def insert_mention_counts(cur, counts):
+    for item in counts.items():
         coin_id = item[0]
         data = item[1]
 
@@ -161,7 +185,7 @@ def update_biz(conn):
            cur.execute('INSERT INTO biz_counts (name_count, \
                 symbol_count, coin_id) \
                 VALUES (%s, %s, %s)',
-                (data['name_count'], data['symbol_count'], item[0]))
+                (data['name_count'], data['symbol_count'], coin_id))
         else:
            cur.execute('UPDATE biz_counts SET \
                 name_count = name_count + '
@@ -170,7 +194,28 @@ def update_biz(conn):
                 + str(data['symbol_count']) + ' WHERE coin_id = %s',
                 (coin_id, ))
 
-    insert_value(cur, 'last_post_no', max_post_no)
+        for post in data['posts']:
+            values = (coin_id, post['time'], post['no'], post['com'])
+
+            cur.execute('INSERT INTO biz_posts (coin_id, time, post_id, \
+                comment) VALUES (%s, %s, %s, %s)', values)
+
+            print('Insert: ' + str(values))
+
+def update_biz(conn):
+    cur = conn.cursor()
+
+    cur.execute('SELECT lower(name) as lower_name, lower(symbol), name, \
+        `rank`, coin_id FROM coins')
+
+    coins = cur.fetchall()
+
+    counts = init_coin_counts(cur, coins)
+    posts = get_biz_posts(cur)
+
+    parse_posts(counts, posts, coins)
+    insert_mention_counts(cur, counts)
+
     conn.commit()
 
 def update_reddit(conn):
@@ -181,10 +226,11 @@ def update_reddit(conn):
     j = read_json(url)
 
     for i in range(len(j['data']['children'])):
-        print j['data']['children'][i]['data']['title']
+        print(j['data']['children'][i]['data']['title'])
 
 def update_heat_map(conn):
     cur = conn.cursor()
+
     cur.execute('SELECT symbol, `rank` FROM coins WHERE `rank` <= 100')
 
     for coin in cur.fetchall():
@@ -211,11 +257,13 @@ def update_heat_map(conn):
             vals = (coin[1], coin[0], timestamp, 1, diff)
             cur.execute(q, vals)
 
-            print 'Insert: ' + str(vals)
+            print('Insert: ' + str(vals))
 
     cur.execute('DELETE FROM heat_map WHERE instance = 0')
     cur.execute('UPDATE heat_map SET instance = 0 WHERE instance = 1')
+
     insert_value(cur, 'last_update_heat_map', int(time.time()))
+
     conn.commit()
 
 def get_change(current, previous):
@@ -232,11 +280,11 @@ def insert_value(cur, key, value):
     if cur.fetchone() == None:
         q = 'INSERT INTO key_values (input_key, input_value) VALUES (%s, %s)'
         vals = (key, value)
-        print 'Insert: ' + str(vals)
+        print('Insert: ' + str(vals))
     else:
         q = 'UPDATE key_values SET input_value = %s WHERE input_key = %s'
         vals = (value, key)
-        print 'Update: ' + str(vals)
+        print('Update: ' + str(vals))
 
     cur.execute(q, vals)
 
@@ -361,7 +409,7 @@ def update_coins(conn):
                 change_7d, market_cap, market_cap_percent, volume_24h,
                 volume_24h_percent)
 
-            print 'insert: ' + str(vals)
+            print('Insert: ' + str(vals))
         else:
             q = "UPDATE coins SET `rank` = %s, name = %s, symbol = %s, \
                 slug = %s, price_btc = %s, price_usd = %s, price_eth = %s, \
@@ -377,11 +425,11 @@ def update_coins(conn):
                 change_7d, market_cap, market_cap_percent, volume_24h,
                 volume_24h_percent, coin_id)
 
-            print 'update: ' + str(vals)
+            print('Update: ' + str(vals))
 
         cur.execute(q, vals)
 
-    print '\ndeleted: ' + str(to_delete)
+    print('\nDeleted: ' + str(to_delete))
 
     insert_value(cur, 'last_update_coins', int(time.time()))
     conn.commit()
@@ -425,7 +473,7 @@ def get_btc_eth(cmc_key):
     return v
 
 def read_file(file_name):
-    return map(str.strip, open(file_name, 'r').readlines())
+    return list(map(str.strip, open(file_name, 'r').readlines()))
 
 def make_conn(cred_file):
     creds = read_file(cred_file)
@@ -448,51 +496,7 @@ def make_conn(cred_file):
             port = creds[5])
 
 def read_json(page):
-    return json.loads(urllib.urlopen(page).read())
-
-def create_tables(conn):
-    cur = conn.cursor()
-
-    cmds = ["CREATE TABLE coins(coin_id INT, name TEXT, \
-                symbol TEXT, slug TEXT, `rank` INT, price_btc FLOAT, \
-                price_usd FLOAT, price_eth FLOAT, total_supply FLOAT, \
-                circulating_supply FLOAT, max_supply FLOAT, \
-                change_1h FLOAT, change_24h FLOAT, change_7d FLOAT, \
-                market_cap FLOAT, market_cap_percent FLOAT, \
-                volume_24h FLOAT, volume_24h_percent FLOAT, \
-                PRIMARY KEY (coin_id))",
-
-            "CREATE TABLE biz_counts(coin_id INT, \
-                name_count INT, symbol_count INT, \
-                PRIMARY KEY(coin_id), \
-                FOREIGN KEY(coin_id) REFERENCES coins (coin_id) \
-                ON UPDATE CASCADE \
-                ON DELETE CASCADE)",
-
-            "CREATE TABLE biz_counts_24h(coin_id INT, \
-                name_count INT, symbol_count INT, total INT, \
-                name_count_prev INT, symbol_count_prev INT, \
-                PRIMARY KEY (coin_id), \
-                FOREIGN KEY(coin_id) REFERENCES coins (coin_id) \
-                ON UPDATE CASCADE \
-                ON DELETE CASCADE)",
-
-            "CREATE TABLE key_values(input_key TEXT, \
-                input_value TEXT)",
-
-            "CREATE TABLE heat_map(`rank` INT, symbol TEXT, time INT, \
-                instance INT, difference FLOAT)",]
-
-    for cmd in cmds:
-        try:
-            print cmd
-            cur.execute(cmd)
-        except Exception as e:
-            conn.rollback()
-            print e
-            continue
-
-    conn.commit()
+    return json.loads(urlre.urlopen(page).read())
 
 if __name__ == '__main__':
     main()
