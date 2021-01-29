@@ -11,14 +11,54 @@ import urllib.request as urlre
 import time
 import pymysql
 import arrow
+import re
+from bs4 import BeautifulSoup
 
 def main():
     conn = make_conn('../res/credentials')
 
-    {'reddit': update_reddit, 'heat-map': update_heat_map,
+    {'ath': get_ath,'reddit': update_reddit,
+        'heat-map': update_heat_map,
         'coins': update_coins, 'biz-delete': biz_delete,
         'biz-24h': update_biz_24h, 'news': news,
         'biz-update': update_biz}.get(sys.argv[1])(conn)
+
+def get_ath(conn):
+    cur = conn.cursor()
+    cur.execute('SELECT symbol FROM coins')
+
+    for coin in cur.fetchall():
+        url = ('https://min-api.cryptocompare.com/data/histoday' +
+            '?fsym=' + coin[0] + '&tsym=USD&limit=2000&aggregate=1&e=CCCAGG')
+
+        recent = read_json(url)
+
+        if recent['Response'] == 'Error':
+            continue
+
+        url = ('https://min-api.cryptocompare.com/data/histoday' +
+            '?fsym=' + coin[0] + '&tsym=USD&limit=2000&aggregate=1&e=CCCAGG' +
+            '&toTs=' + str(recent['Data'][0]['time']))
+
+        later = read_json(url)
+
+        data = later['Data']
+        data += recent['Data']
+
+        max_price = 0
+
+        for point in data:
+            values = (coin[0], point['close'], point['time'])
+
+            if point['close'] > max_price:
+                cur.execute('INSERT INTO ath (symbol, ath, time) \
+                    VALUES (%s, %s, %s)', values)
+
+                print('Inserted: ' + str(values))
+
+                max_price = point['close']
+
+    conn.commit()
 
 def news(conn):
     cur = conn.cursor()
@@ -63,7 +103,9 @@ def news(conn):
 def biz_delete(conn):
     cur = conn.cursor()
 
+    cur.execute('DELETE FROM biz_posts')
     cur.execute('DELETE FROM biz_counts')
+    cur.execute('DELETE FROM biz_relations')
     cur.execute('DELETE FROM biz_counts_24h')
     cur.execute('DELETE FROM key_values WHERE input_key = "last_post_no"')
 
@@ -82,7 +124,7 @@ def get_biz_last_post(cur):
 
 def update_biz_24h(conn):
     cur = conn.cursor()
-    cur.execute('SELECT coin_id, name_count, symbol_count FROM biz_counts')
+    cur.execute('SELECT coin_id, name_count, symbol_count, total FROM biz_counts')
 
     for count_data in cur.fetchall():
         coin_id = count_data[0]
@@ -92,33 +134,32 @@ def update_biz_24h(conn):
         if cur.fetchone() == None:
             cur.execute('INSERT INTO biz_counts_24h (coin_id, \
                 name_count, symbol_count, name_count_prev, \
-                symbol_count_prev, total) \
-                VALUES (%s, %s, %s, 0, 0, %s)',
+                symbol_count_prev, total_prev, total) \
+                VALUES (%s, %s, %s, 0, 0, 0, %s)',
                 (count_data[0], count_data[1], count_data[2],
-                    count_data[1] + count_data[2]))
+                    count_data[3]))
         else:
-            cur.execute('SELECT name_count, symbol_count \
+            cur.execute('SELECT name_count, symbol_count, total \
                 FROM biz_counts_24h WHERE coin_id = %s',
                 (coin_id, ))
 
             previous = cur.fetchall()[0]
 
-            cur.execute('SELECT name_count, symbol_count FROM biz_counts \
-                WHERE coin_id = %s', (coin_id, ))
+            cur.execute('SELECT name_count, symbol_count, total \
+                FROM biz_counts WHERE coin_id = %s', (coin_id, ))
 
             current = cur.fetchall()[0]
 
-            cur.execute('UPDATE biz_counts_24h SET total = %s, \
-                name_count = %s, symbol_count = %s, name_count_prev = %s, \
-                symbol_count_prev = %s WHERE coin_id = %s',
-                (current[0] + current[1], current[0], current[1],
-                    previous[0], previous[1], coin_id))
+            cur.execute('UPDATE biz_counts_24h SET name_count = %s, \
+                symbol_count = %s, total = %s, name_count_prev = %s, \
+                symbol_count_prev = %s, total_prev = %s WHERE coin_id = %s',
+                (current[0], current[1], current[2],
+                    previous[0], previous[1], previous[2], coin_id))
 
     last_post_no = get_biz_last_post(cur)
 
     cur.execute('DELETE FROM biz_counts')
     cur.execute('DELETE FROM key_values WHERE input_key = "last_post_no"')
-    cur.execute('DELETE FROM biz_posts WHERE post_id < %s', (last_post_no, ))
 
     insert_value(cur, 'last_update_biz', int(time.time()))
 
@@ -146,28 +187,46 @@ def get_biz_posts(cur):
                     posts.append(post)
                     max_post_no = max(post_no, max_post_no)
 
+            time.sleep(1)
+
+        time.sleep(1)
+
     insert_value(cur, 'last_post_no', max_post_no)
 
     return posts
 
-def parse_posts(counts, posts, coins):
+def parse_posts(counts, posts, coins, distinct_posts):
     for post in posts:
         try:
             comment = post['com'].lower()
+            comment = re.sub(r'[^A-Za-z0-9 ]+', ' ', comment)
+            comment = ' ' + comment + ' '
         except:
             continue
 
-        post = {'com': post['com'], 'time': post['time'], 'no': post['no']}
+        soup = BeautifulSoup(post['com'])
+
+        for a in soup.findAll('a'):
+            a.replaceWithChildren()
+
+        save_post = {'com': soup, 'time': post['time'],
+            'thread': post['resto'], 'no': post['no']}
 
         for coin in coins:
             found = 0
+            same_label = coin[0].lower() == coin[1].lower()
 
-            if comment.find(coin[0]) != -1:
+            if comment.find(' ' + coin[0] + ' ') != -1:
                 counts[coin[4]]['name_count'] += 1
-                counts[coin[4]]['posts'].append(post)
-            elif comment.find(coin[1]) != -1:
+                found = 1
+
+            if comment.find(' ' + coin[1] + ' ') != -1 and not same_label:
                 counts[coin[4]]['symbol_count'] += 1
-                counts[coin[4]]['posts'].append(post)
+                found = 1
+
+            if found:
+                distinct_posts[post['no']] = save_post
+                counts[coin[4]]['posts'].append(post['no'])
 
 def init_coin_counts(cur, coins):
     counts = {}
@@ -179,34 +238,46 @@ def init_coin_counts(cur, coins):
 
     return counts
 
-def insert_mention_counts(cur, counts):
+def insert_mention_counts(cur, counts, distinct_posts):
+    for item in distinct_posts.items():
+        post = item[1]
+        values = (post['time'], post['no'], post['com'], post['thread'])
+
+        cur.execute('INSERT INTO biz_posts (time, post_id, \
+            comment, thread_id) VALUES (%s, %s, %s, %s)', values)
+
+        print('Insert post: ' + str(values))
+
     for item in counts.items():
         coin_id = item[0]
         data = item[1]
+
+        count_total = data['name_count'] + data['symbol_count']
 
         cur.execute('SELECT coin_id FROM biz_counts WHERE coin_id = %s',
             (coin_id, ))
 
         if cur.fetchone() == None:
-           cur.execute('INSERT INTO biz_counts (name_count, \
-                symbol_count, coin_id) \
-                VALUES (%s, %s, %s)',
-                (data['name_count'], data['symbol_count'], coin_id))
+            cur.execute('INSERT INTO biz_counts (name_count, \
+                symbol_count, coin_id, total) \
+                VALUES (%s, %s, %s, %s)',
+                (data['name_count'], data['symbol_count'], coin_id,
+                count_total))
         else:
            cur.execute('UPDATE biz_counts SET \
-                name_count = name_count + '
-                + str(data['name_count']) + ', \
+                total = total + ' + str(count_total) + ', \
+                name_count = name_count + ' + str(data['name_count']) + ', \
                 symbol_count = symbol_count + '
                 + str(data['symbol_count']) + ' WHERE coin_id = %s',
                 (coin_id, ))
 
         for post in data['posts']:
-            values = (coin_id, post['time'], post['no'], post['com'])
+            values = (coin_id, post)
 
-            cur.execute('INSERT INTO biz_posts (coin_id, time, post_id, \
-                comment) VALUES (%s, %s, %s, %s)', values)
+            cur.execute('INSERT INTO biz_relations (coin_id, post_id) \
+                VALUES (%s, %s)', values)
 
-            print('Insert: ' + str(values))
+            print('Insert relation: ' + str(values))
 
 def update_biz(conn):
     cur = conn.cursor()
@@ -216,11 +287,13 @@ def update_biz(conn):
 
     coins = cur.fetchall()
 
+    distinct_posts = {}
+
     counts = init_coin_counts(cur, coins)
     posts = get_biz_posts(cur)
 
-    parse_posts(counts, posts, coins)
-    insert_mention_counts(cur, counts)
+    parse_posts(counts, posts, coins, distinct_posts)
+    insert_mention_counts(cur, counts, distinct_posts)
 
     conn.commit()
 
