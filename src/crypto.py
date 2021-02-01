@@ -124,20 +124,25 @@ def get_biz_last_post(cur):
 
 def update_biz_24h(conn):
     cur = conn.cursor()
-    cur.execute('SELECT coin_id, name_count, symbol_count, total FROM biz_counts')
+    cur.execute('SELECT coin_id, name_count, symbol_count, total \
+        FROM biz_counts')
+
+    time = int(time.time())
 
     for count_data in cur.fetchall():
         coin_id = count_data[0]
         cur.execute('SELECT coin_id FROM biz_counts_24h \
             WHERE coin_id = %s', (coin_id, ))
 
+        cur.execute('INSERT INTO biz_timeline (coin_id, time, mentions) \
+            VALUES (%s, %s, %s)', (coin_id, time, coin_data[3]))
+
         if cur.fetchone() == None:
             cur.execute('INSERT INTO biz_counts_24h (coin_id, \
                 name_count, symbol_count, name_count_prev, \
                 symbol_count_prev, total_prev, total) \
                 VALUES (%s, %s, %s, 0, 0, 0, %s)',
-                (count_data[0], count_data[1], count_data[2],
-                    count_data[3]))
+                (count_data[0], count_data[1], count_data[2], count_data[3]))
         else:
             cur.execute('SELECT name_count, symbol_count, total \
                 FROM biz_counts_24h WHERE coin_id = %s',
@@ -159,9 +164,14 @@ def update_biz_24h(conn):
     last_post_no = get_biz_last_post(cur)
 
     cur.execute('DELETE FROM biz_counts')
-    cur.execute('DELETE FROM key_values WHERE input_key = "last_post_no"')
+    #cur.execute('DELETE FROM key_values WHERE input_key = "last_post_no"')
 
-    insert_value(cur, 'last_update_biz', int(time.time()))
+    biz_post_count = get_biz_post_count(cur)
+    cur.execute('INSERT INTO biz_total_posts (time, count) VALUES (%s, %s)',
+        (time, biz_post_count))
+
+    insert_value(cur, 'biz_post_count', 0)
+    insert_value(cur, 'last_update_biz', time)
 
     conn.commit()
 
@@ -243,8 +253,11 @@ def insert_mention_counts(cur, counts, distinct_posts):
         post = item[1]
         values = (post['time'], post['no'], post['com'], post['thread'])
 
-        cur.execute('INSERT INTO biz_posts (time, post_id, \
-            comment, thread_id) VALUES (%s, %s, %s, %s)', values)
+        try:
+            cur.execute('INSERT INTO biz_posts (time, post_id, \
+                comment, thread_id) VALUES (%s, %s, %s, %s)', values)
+        except:
+            continue
 
         print('Insert post: ' + str(values))
 
@@ -279,6 +292,17 @@ def insert_mention_counts(cur, counts, distinct_posts):
 
             print('Insert relation: ' + str(values))
 
+def get_biz_post_count(cur):
+    cur.execute('SELECT input_value FROM key_values WHERE input_key = \
+        "biz_post_count"')
+
+    try:
+        biz_post_count = int(cur.fetchone()[0])
+    except:
+        biz_post_count = 0
+
+    return biz_post_count
+
 def update_biz(conn):
     cur = conn.cursor()
 
@@ -294,6 +318,11 @@ def update_biz(conn):
 
     parse_posts(counts, posts, coins, distinct_posts)
     insert_mention_counts(cur, counts, distinct_posts)
+
+    biz_post_count = get_biz_post_count(cur)
+
+    insert_value(cur, 'biz_post_count', biz_post_count + len(distinct_posts))
+    insert_value(cur, 'last_update_biz_posts', int(time.time()))
 
     conn.commit()
 

@@ -37,6 +37,13 @@ CREATE TABLE biz_relations(coin_id INT, post_id INT,
     ON UPDATE CASCADE
     ON DELETE CASCADE);
 
+CREATE TABLE biz_timeline(coin_id INT, time INT, mentions INT,
+    FOREIGN KEY(coin_id) REFERENCES coins (coin_id)
+    ON UPDATE CASCADE
+    ON DELETE CASCADE);
+
+CREATE TABLE biz_total_posts(time INT, count INT);
+
 CREATE table ath(symbol TEXT, ath FLOAT, time INT);
 
 CREATE TABLE heat_map(`rank` INT, symbol TEXT, time INT,
